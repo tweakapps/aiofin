@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { Cache } from '../utils/index.js';
 import { rememberImages, recallImages } from './images.js';

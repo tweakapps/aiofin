@@ -52,7 +52,7 @@ function lookup<T, R>(
   return collectConcurrent(items, fn, {
     concurrency: appConfig.api.jellyfinLookupConcurrency,
     target: opts.target,
-    onError: (error) =>
+    onError: (error: unknown) =>
       logger.debug(
         { err: error instanceof Error ? error.message : String(error) },
         `skipping unresolvable ${opts.what}`

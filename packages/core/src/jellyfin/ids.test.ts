@@ -1,4 +1,4 @@
-import { describe, it } from 'vitest';
+import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import type { JellyfinItemDescriptor } from '../db/repositories/jellyfin.js';
 import {
