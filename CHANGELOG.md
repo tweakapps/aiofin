@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.34.1](https://github.com/Viren070/AIOStreams/compare/v2.34.0...v2.34.1) (2026-09-07)
+
+
+### Features
+
+* **core:** parse Torz's probed codec/HDR/audio/bitrate data ([#1237](https://github.com/Viren070/AIOStreams/issues/1237)) ([f7d0e67](https://github.com/Viren070/AIOStreams/commit/f7d0e6783be796d1bd757aeb65d86492a8b506ec))
+* **usenet:** track unreadable articles per provider ([2d8dd11](https://github.com/Viren070/AIOStreams/commit/2d8dd1116cb918e4f002546a24293fc6950dfcdf))
+* **usenet:** verify articles against their yEnc checksums ([72ac0a4](https://github.com/Viren070/AIOStreams/commit/72ac0a4d9625699fff28ff20a4b03a2ee83d80a6))
+
+
+### Bug Fixes
+
+* **deduplicator:** update mediaInfoQuality on merged languages/subtitles ([#1291](https://github.com/Viren070/AIOStreams/issues/1291)) ([90eaf92](https://github.com/Viren070/AIOStreams/commit/90eaf921c6a99a9d7ff3856112c142a54c1e408f))
+* **metadata/scene-mappings:** update user agent ([c495b1d](https://github.com/Viren070/AIOStreams/commit/c495b1d55e7d0a4c58ce032d869b24071e2f73ad))
+* **presets:** link to account settings for Anime Tosho New and nekoBT API keys ([#1294](https://github.com/Viren070/AIOStreams/issues/1294)) ([4905648](https://github.com/Viren070/AIOStreams/commit/49056487e6a1f4c5b5bb23f7f24fe54eaa1f992d))
+* **usenet/ebml:** log where the hole-fill tracker lost alignment ([8eba1b8](https://github.com/Viren070/AIOStreams/commit/8eba1b834f27e80b469b74f3a80beeae975eaa10))
+* **usenet:** fail reads whose decoded bytes disagree with their metadata ([9c0ec73](https://github.com/Viren070/AIOStreams/commit/9c0ec73626d7eb94beb5386edc717368a8df7113))
+* **usenet:** infer a volume's fragment when its header article is unreadable ([87c031b](https://github.com/Viren070/AIOStreams/commit/87c031b9193611ea7fed4031a86bc6a3aa2bf2b6))
+* **usenet:** keep a completed folder for every category the arrs know ([0844e0f](https://github.com/Viren070/AIOStreams/commit/0844e0fc05962a73dff2c52e9410f77bbeb338ce)), closes [#1282](https://github.com/Viren070/AIOStreams/issues/1282)
+
 ## [2.34.0](https://github.com/Viren070/AIOStreams/compare/v2.33.2...v2.34.0) (2026-09-04)
 
 
