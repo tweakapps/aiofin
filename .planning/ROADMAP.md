@@ -6,7 +6,7 @@
 
 ## Phases
 
-- [ ] **Phase 1: Port** - Jellyfin layer ported onto v2.34.0, building and tested
+- [x] **Phase 1: Port** (completed 2026-09-08) - Jellyfin layer ported onto v2.34.0, building and tested
 - [ ] **Phase 2: Parallel Deploy** - Image on GHCR, parallel container on the Dubai VPS with a DB copy
 - [ ] **Phase 3: Profile & Clients** - AioMetadata in the profile, Infuse/SenPlayer checklist with evidence
 - [ ] **Phase 4: Cut-over** - Production on the ported image with rollback, all profiles
