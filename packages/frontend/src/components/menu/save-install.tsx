@@ -652,9 +652,7 @@ function InstallCard({
             <AppCard
               logoSrc="https://raw.githubusercontent.com/jellyfin/jellyfin-ux/refs/heads/master/logos/PNG-4x/jellyfin-icon--color-on-dark.png"
               name="Jellyfin"
-              description="Via Gelato plugin"
-              unofficial
-              author="lostb1t"
+              description="Connect Jellyfin apps directly"
               onClick={onOpenJellyfin}
             />
             <AppCard
@@ -2388,23 +2386,118 @@ function Content() {
           open={jellyfinModal.isOpen}
           onOpenChange={jellyfinModal.toggle}
           title="AIOStreams for Jellyfin"
-          description="Install the Gelato plugin to bring AIOStreams to Jellyfin"
+          description="Connect any Jellyfin client to this instance"
         >
           <div className="space-y-4">
             <p className="text-sm text-gray-300">
-              Gelato is an unofficial Jellyfin plugin that brings Stremio addons
-              into Jellyfin.
+              Add this instance in any Jellyfin client (Jellyfin app, Swiftfin,
+              Findroid, Streamyfin, Infuse, …) with these details:
             </p>
-            <Button
-              intent="primary"
-              className="w-full"
-              leftIcon={<FiExternalLink />}
-              onClick={() =>
-                window.open('https://github.com/lostb1t/Gelato', '_blank')
-              }
-            >
-              Open Gelato on GitHub
-            </Button>
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-400 ml-1">
+                  Server address
+                </label>
+                <div className="flex items-center gap-2">
+                  <TextInput
+                    type="text"
+                    readOnly
+                    value={`${baseUrl}/jellyfin`}
+                    className="flex-1 font-mono text-sm bg-black/20"
+                    onClick={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    onClick={() => {
+                      copyToClipboard(`${baseUrl}/jellyfin`);
+                      toast.success('Server address copied');
+                    }}
+                    intent="primary"
+                    className="shrink-0 px-3"
+                    aria-label="Copy server address"
+                  >
+                    <CopyIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-gray-400 ml-1">
+                  Username
+                </label>
+                <div className="flex items-center gap-2">
+                  <TextInput
+                    type="text"
+                    readOnly
+                    value={profileAlias ?? uuid ?? ''}
+                    className="flex-1 font-mono text-sm bg-black/20"
+                    onClick={(e) => e.currentTarget.select()}
+                  />
+                  <Button
+                    onClick={() => {
+                      copyToClipboard(profileAlias ?? uuid ?? '');
+                      toast.success('Username copied');
+                    }}
+                    intent="primary"
+                    className="shrink-0 px-3"
+                    aria-label="Copy username"
+                  >
+                    <CopyIcon className="h-4 w-4" />
+                  </Button>
+                </div>
+                <p className="text-xs text-gray-500 ml-1">
+                  {profileAlias
+                    ? 'Your profile alias doubles as your Jellyfin username; the UUID also works.'
+                    : 'Your configuration UUID is your username. Sign in on this page and set a profile alias to get a friendlier one.'}
+                </p>
+              </div>
+              <p className="text-xs text-gray-500 ml-1">
+                Password: the password of this configuration. Devices without a
+                comfortable keyboard can skip the login entirely with the
+                pre-authenticated address below (treat it like a password).
+              </p>
+              {uuid && encryptedPassword && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-400 ml-1">
+                    Pre-authenticated server address
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <TextInput
+                      type="text"
+                      readOnly
+                      value={`${baseUrl}/jellyfin/${uuid}/${encryptedPassword}`}
+                      className="flex-1 font-mono text-sm bg-black/20"
+                      onClick={(e) => e.currentTarget.select()}
+                    />
+                    <Button
+                      onClick={() => {
+                        copyToClipboard(
+                          `${baseUrl}/jellyfin/${uuid}/${encryptedPassword}`
+                        );
+                        toast.success('Pre-authenticated address copied');
+                      }}
+                      intent="primary"
+                      className="shrink-0 px-3"
+                      aria-label="Copy pre-authenticated address"
+                    >
+                      <CopyIcon className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+            <p className="text-xs text-gray-500">
+              Direct play only (no transcoding) — a catalog/metadata addon (e.g.
+              TMDB or Cinemeta) fills your libraries, and a debrid or usenet
+              service makes results playable. Alternatively, the unofficial{' '}
+              <a
+                href="https://github.com/lostb1t/Gelato"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="underline hover:text-gray-300"
+              >
+                Gelato plugin
+              </a>{' '}
+              brings Stremio addons into a real Jellyfin server.
+            </p>
           </div>
         </Modal>
 

@@ -1,6 +1,11 @@
 export { initDb, getDb, closeDb } from './db.js';
 export { UserRepository } from './repositories/users.js';
 export {
+  JellyfinRepository,
+  type JellyfinItemDescriptor,
+  type JellyfinPlaystateRow,
+} from './repositories/jellyfin.js';
+export {
   AdminUsersRepository,
   type AdminUserListItem,
   type AdminUserDetail,

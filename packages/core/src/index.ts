@@ -75,3 +75,4 @@ export type {
   RunPlayChainConfig,
   RunPlayChainResult,
 } from './main/failover.js';
+export * from './jellyfin/index.js';

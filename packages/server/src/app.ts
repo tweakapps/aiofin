@@ -30,6 +30,7 @@ import {
   addonCatalog,
   alias,
 } from './routes/stremio/index.js';
+import { createJellyfinRouter } from './routes/jellyfin/index.js';
 import {
   manifest as chillLinkManifest,
   streams as chillLinkStreams,
@@ -205,6 +206,25 @@ app.use(
   chillLinkRouter
 );
 app.use('/chilllink/:uuid/:encryptedPassword', chillLinkRouter);
+
+const jellyfinGate: express.RequestHandler = (req, res, next) => {
+  if (!appConfig.api.enableJellyfinApi) {
+    res.status(404).json({ Message: 'Jellyfin API is disabled' });
+    return;
+  }
+  next();
+};
+app.use(
+  `/jellyfin/:uuid/:encryptedPassword${VARIANT_PATH_ROUTE}`,
+  jellyfinGate,
+  createJellyfinRouter()
+);
+app.use(
+  '/jellyfin/:uuid/:encryptedPassword',
+  jellyfinGate,
+  createJellyfinRouter()
+);
+app.use('/jellyfin', jellyfinGate, createJellyfinRouter());
 
 const seanimeRouter = express.Router({ mergeParams: true });
 seanimeRouter.use(corsMiddleware);

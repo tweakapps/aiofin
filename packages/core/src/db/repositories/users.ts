@@ -187,6 +187,31 @@ export class UserRepository {
     }
   }
 
+  static async verifyCredentials(
+    uuid: string,
+    password: string
+  ): Promise<boolean> {
+    try {
+      const row = await getDb().maybeOne<UserRow>(
+        sql`SELECT password_hash, config_salt FROM users WHERE uuid = ${uuid}`
+      );
+      if (!row) return false;
+      await this.resolveConfigKey(uuid, password, row);
+      return true;
+    } catch (error) {
+      if (
+        error instanceof APIError &&
+        error.code === constants.ErrorCode.USER_INVALID_DETAILS
+      ) {
+        return false;
+      }
+      if (error instanceof APIError) throw error;
+      const msg = error instanceof Error ? error.message : String(error);
+      logger.error(`Error verifying credentials for user ${uuid}: ${msg}`);
+      throw new APIError(constants.ErrorCode.DATABASE_ERROR);
+    }
+  }
+
   static async getUser(
     uuid: string,
     password: string

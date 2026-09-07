@@ -151,6 +151,46 @@ export const apiSchema = {
     requiresRestart: true,
     secret: false,
   },
+  enableJellyfinApi: {
+    schema: z.boolean(),
+    default: true,
+    label: 'Enable Jellyfin-compatible API',
+    description:
+      'When true, a Jellyfin-compatible server API is exposed at /jellyfin (login with config UUID + password) and /jellyfin/<uuid>/<encryptedPassword> (pre-authenticated). Jellyfin clients (Swiftfin, Infuse, Findroid, Streamyfin, Jellyfin Android TV, Kodi…) can browse catalogs, see metadata, play streams directly and track watch progress.',
+    env: 'ENABLE_JELLYFIN_API',
+    requiresRestart: true,
+    secret: false,
+  },
+  jellyfinMaxCatalogItems: {
+    schema: z.number().int().min(0),
+    default: 1000,
+    label: 'Jellyfin: max items per library',
+    description:
+      'Upper bound on how many items a single catalog exposes to Jellyfin clients that crawl an entire library (Infuse, Kodi). Prevents infinite/discover catalogs from being paged forever. 0 disables the cap.',
+    env: 'JELLYFIN_MAX_CATALOG_ITEMS',
+    requiresRestart: false,
+    secret: false,
+  },
+  jellyfinLookupConcurrency: {
+    schema: z.number().int().min(1).max(64),
+    default: 8,
+    label: 'Jellyfin: lookup concurrency',
+    description:
+      'How many items a single Jellyfin list request (Resume, Favorites, Next Up, Latest, Ids query) resolves at once. Each item may still fan out to several addon calls, so this is a cap on parallel items, not on parallel upstream requests. Applies per request; higher is faster for the client but bursts harder on the configured addons.',
+    env: 'JELLYFIN_LOOKUP_CONCURRENCY',
+    requiresRestart: false,
+    secret: false,
+  },
+  jellyfinRelayTimeout: {
+    schema: z.number().int().min(1000),
+    default: 15000,
+    label: 'Jellyfin: relay timeout (ms)',
+    description:
+      'How long to wait for an upstream image or subtitle to start responding when Jellyfin clients fetch it through this server (milliseconds). Covers connection and headers only — once the response begins, the body streams at the client\u2019s pace and is never cut short.',
+    env: 'JELLYFIN_RELAY_TIMEOUT',
+    requiresRestart: false,
+    secret: false,
+  },
   provideStreamData: {
     schema: provideStreamData,
     default: null,
