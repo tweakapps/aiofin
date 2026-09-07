@@ -4,6 +4,10 @@ import {
   settleMetricsHistory,
   stopMetricsHistory,
 } from './utils/system-metrics.js';
+import {
+  attachJellyfinWebSocket,
+  registerJellyfinTasks,
+} from './routes/jellyfin/index.js';
 import { startNfsShare, stopNfsShare } from './nfs.js';
 import { startFuseMount, stopFuseMount } from './fuse.js';
 
@@ -368,6 +372,7 @@ async function start() {
     registerUsenetTasks();
     registerStreamTasks();
     registerReleaseBlocklistTasks();
+    if (appConfig.api.enableJellyfinApi) registerJellyfinTasks();
     // Otherwise sessions from the last run stay active forever.
     await recoverStreamSessions().catch((error) =>
       logger.warn('Failed to recover orphaned stream sessions:', error)
@@ -387,6 +392,9 @@ async function start() {
       );
       settleMetricsHistory();
     });
+    if (appConfig.api.enableJellyfinApi) {
+      attachJellyfinWebSocket(server);
+    }
   } catch (error) {
     if (error instanceof ConfigStartupError) throw error;
     logger.error('Failed to start server:', error);
