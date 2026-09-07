@@ -35,6 +35,6 @@
 | Requirement | Phase | Status |
 |---|---|---|
 | PORT-01..04 | Phase 1 | Complete |
-| DEP-01..03 | Phase 2 | Pending |
+| DEP-01..03 | Phase 2 | Complete (DEP-01 deferred: GHCR token scope) |
 | PROF-01, CLI-01..03 | Phase 3 | Pending |
 | CUT-01 | Phase 4 | Pending |
