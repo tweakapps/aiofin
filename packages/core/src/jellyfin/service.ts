@@ -103,6 +103,10 @@ export class JellyfinService {
         .then((e) => {
           this.engine = e;
           return e;
+        })
+        .catch((e) => {
+          this.initPromise = null;
+          throw e;
         });
     }
     return this.initPromise;
@@ -148,12 +152,12 @@ export class JellyfinService {
     if (opts.search) {
       if (!supports('search'))
         return { items: [], hasMore: false, capped: false };
-      extrasBase.push(`search=${opts.search}`);
+      extrasBase.push(`search=${encodeURIComponent(opts.search)}`);
     }
     if (opts.genre) {
       if (!supports('genre'))
         return { items: [], hasMore: false, capped: false };
-      extrasBase.push(`genre=${opts.genre}`);
+      extrasBase.push(`genre=${encodeURIComponent(opts.genre)}`);
     }
     const canSkip = supports('skip');
     const wantEnd = Math.min(opts.startIndex + opts.limit, cap);

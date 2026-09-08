@@ -509,7 +509,10 @@ export function qi(req: Request, name: string, fallback: number): number {
 export function qb(req: Request, name: string): boolean | undefined {
   const v = qs(req, name);
   if (v == null) return undefined;
-  return v.toLowerCase() === 'true';
+  const lower = v.toLowerCase();
+  if (lower === 'true' || lower === '1') return true;
+  if (lower === 'false' || lower === '0') return false;
+  return undefined;
 }
 
 export function qlist(req: Request, name: string): string[] {

@@ -358,18 +358,28 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     const catalog = await ctx.service.findCatalog(catalogDesc.t, catalogDesc.c);
     if (!catalog) return list([], 0, startIndex);
     const g = parent?.k === 'genre' ? parent.g : genre;
-    const page = await safeCatalogPage(
-      ctx,
-      catalog,
-      { startIndex, limit, search: searchTerm, genre: g },
-      'Items by view'
-    );
-    const items = await itemsFromPreviews(ctx, page.items, parentId);
-    const filtered = applySort(
-      req,
-      applyUserFilters(req, filterByType(items, types))
-    );
-    const total = page.hasMore
+    let rawOffset = startIndex;
+    let filtered: JellyfinItem[] = [];
+    let hasMore = false;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const page = await safeCatalogPage(
+        ctx,
+        catalog,
+        { startIndex: rawOffset, limit, search: searchTerm, genre: g },
+        'Items by view'
+      );
+      hasMore = page.hasMore;
+      const items = await itemsFromPreviews(ctx, page.items, parentId);
+      const pageFiltered = applySort(
+        req,
+        applyUserFilters(req, filterByType(items, types))
+      );
+      filtered = filtered.concat(pageFiltered);
+      rawOffset += page.items.length;
+      if (filtered.length >= limit || !page.hasMore) break;
+    }
+    filtered = filtered.slice(0, limit);
+    const total = hasMore
       ? startIndex + filtered.length + limit
       : startIndex + filtered.length;
     return list(filtered, total, startIndex);
@@ -421,7 +431,6 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
         if (offset >= startIndex && items.length < limit) items.push(it);
         offset++;
       }
-      if (page.hasMore) offset += 1;
       if (page.hasMore && items.length >= limit) {
         return list(
           filterByType(items, types),
@@ -704,12 +713,69 @@ async function sendItem(
   res.json(stripInternal(item));
 }
 
-const RESERVED_ITEM_IDS =
-  /^(Filters2?|Counts|Latest|Resume|Intros|Root|Suggestions)$/i;
+router.get(
+  ['/Items/Filters', '/Items/Filters2'],
+  jf(async (req, res, ctx) => {
+    const parentId = qs(req, 'ParentId');
+    const catalogs = await ctx.service.getCatalogs();
+    let scoped = catalogs;
+    if (parentId) {
+      const d = await decodeJellyfinId(parentId);
+      if (d?.k === 'view')
+        scoped = catalogs.filter((c) => c.type === d.t && c.id === d.c);
+    }
+    const genres: { Name: string; Id: string }[] = [];
+    const seen = new Set<string>();
+    for (const catalog of scoped) {
+      for (const g of await ctx.service.getCatalogGenres(catalog)) {
+        if (seen.has(g)) continue;
+        seen.add(g);
+        genres.push({
+          Name: g,
+          Id: encodeJellyfinId({
+            k: 'genre',
+            t: catalog.type,
+            c: catalog.id,
+            g,
+          }),
+        });
+      }
+    }
+    if (/Filters2/i.test(req.path)) {
+      res.json({ Genres: genres, Tags: [] });
+    } else {
+      res.json({
+        Genres: genres.map((g) => g.Name),
+        Tags: [],
+        OfficialRatings: [],
+        Years: [],
+      });
+    }
+  })
+);
+
+router.get(
+  '/Items/Counts',
+  jf(async (_req, res) => {
+    res.json({
+      MovieCount: 0,
+      SeriesCount: 0,
+      EpisodeCount: 0,
+      ArtistCount: 0,
+      ProgramCount: 0,
+      TrailerCount: 0,
+      SongCount: 0,
+      AlbumCount: 0,
+      MusicVideoCount: 0,
+      BoxSetCount: 0,
+      BookCount: 0,
+      ItemCount: 0,
+    });
+  })
+);
+
 router.get(
   ['/Users/:userId/Items/:itemId', '/Items/:itemId'],
-  (req, _res, next) =>
-    RESERVED_ITEM_IDS.test(param(req, 'itemId')) ? next('route') : next(),
   jf(async (req, res, ctx) => {
     await sendItem(req, res, ctx, param(req, 'itemId'));
   })
@@ -902,77 +968,12 @@ router.get(
   jf(async (req, res, ctx) => {
     res.json(
       stripInternal(
-        buildGenreItem(
-          ctx.build,
-          'movie',
-          '',
-          decodeURIComponent(param(req, 'name'))
-        )
+        buildGenreItem(ctx.build, 'movie', '', param(req, 'name'))
       )
     );
   })
 );
 
-router.get(
-  ['/Items/Filters', '/Items/Filters2'],
-  jf(async (req, res, ctx) => {
-    const parentId = qs(req, 'ParentId');
-    const catalogs = await ctx.service.getCatalogs();
-    let scoped = catalogs;
-    if (parentId) {
-      const d = await decodeJellyfinId(parentId);
-      if (d?.k === 'view')
-        scoped = catalogs.filter((c) => c.type === d.t && c.id === d.c);
-    }
-    const genres: { Name: string; Id: string }[] = [];
-    const seen = new Set<string>();
-    for (const catalog of scoped) {
-      for (const g of await ctx.service.getCatalogGenres(catalog)) {
-        if (seen.has(g)) continue;
-        seen.add(g);
-        genres.push({
-          Name: g,
-          Id: encodeJellyfinId({
-            k: 'genre',
-            t: catalog.type,
-            c: catalog.id,
-            g,
-          }),
-        });
-      }
-    }
-    if (/Filters2/i.test(req.path)) {
-      res.json({ Genres: genres, Tags: [] });
-    } else {
-      res.json({
-        Genres: genres.map((g) => g.Name),
-        Tags: [],
-        OfficialRatings: [],
-        Years: [],
-      });
-    }
-  })
-);
-
-router.get(
-  '/Items/Counts',
-  jf(async (_req, res) => {
-    res.json({
-      MovieCount: 0,
-      SeriesCount: 0,
-      EpisodeCount: 0,
-      ArtistCount: 0,
-      ProgramCount: 0,
-      TrailerCount: 0,
-      SongCount: 0,
-      AlbumCount: 0,
-      MusicVideoCount: 0,
-      BoxSetCount: 0,
-      BookCount: 0,
-      ItemCount: 0,
-    });
-  })
-);
 
 router.get(
   '/Search/Hints',
@@ -1015,7 +1016,7 @@ router.get(
   jf(async (req, res, ctx) => {
     const item = await itemFromDescriptor(ctx, {
       k: 'person',
-      n: decodeURIComponent(param(req, 'name')),
+      n: param(req, 'name'),
     });
     res.json(item ? stripInternal(item) : { Message: 'Not found' });
   })
