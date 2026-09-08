@@ -19,6 +19,9 @@ export const TICKS_PER_MS = 10_000;
 export const TICKS_PER_SECOND = 10_000_000;
 export const TICKS_PER_MINUTE = 600_000_000;
 
+// Bump whenever the shape/content of items changes so clients drop cached metadata.
+export const JELLYFIN_DTO_VERSION = 2;
+
 export type JellyfinItemType =
   | 'Movie'
   | 'Series'
@@ -411,7 +414,9 @@ export function buildViewItem(
     Type: 'CollectionFolder',
     IsFolder: true,
     ...(collectionType ? { CollectionType: collectionType } : {}),
-    Etag: imageTag(`${catalog.type}:${catalog.id}`),
+    Etag: imageTag(
+      JSON.stringify([JELLYFIN_DTO_VERSION, catalog.type, catalog.id])
+    ),
     DateCreated: '2020-01-01T00:00:00.0000000Z',
     CanDelete: false,
     CanDownload: false,
@@ -519,6 +524,8 @@ export function buildMetaItem(
   if (images.Primary) imageTags.Primary = imageTag(images.Primary);
   if (images.Logo) imageTags.Logo = imageTag(images.Logo);
 
+  const people = peopleFrom(ctx, meta);
+
   const item: JellyfinItem = {
     Id: id,
     Name: meta.name ?? meta.id,
@@ -528,7 +535,18 @@ export function buildMetaItem(
     Type: itemType,
     IsFolder: itemType === 'Series',
     MediaType: itemType === 'Movie' ? 'Video' : undefined,
-    Etag: imageTag(id),
+    Etag: imageTag(
+      JSON.stringify([
+        JELLYFIN_DTO_VERSION,
+        id,
+        meta.name,
+        images.Primary,
+        images.Backdrop,
+        images.Logo,
+        people.map((p) => [p.Id, p.PrimaryImageTag, p.Role]),
+        full.videos?.length ?? 0,
+      ])
+    ),
     DateCreated: premiere ?? '2020-01-01T00:00:00.0000000Z',
     CanDelete: false,
     CanDownload: itemType === 'Movie',
@@ -547,7 +565,7 @@ export function buildMetaItem(
       Name: g,
       Id: encodeJellyfinId({ k: 'genre', t: meta.type, c: '', g }),
     })),
-    People: peopleFrom(ctx, meta),
+    People: people,
     Studios: [],
     Tags: [],
     Taglines: [],
@@ -689,6 +707,9 @@ export function buildSeasonItem(
     SortName: String(group.season).padStart(4, '0'),
     ServerId: ctx.serverId,
     Type: 'Season',
+    Etag: imageTag(
+      JSON.stringify([JELLYFIN_DTO_VERSION, id, group.name, images.Primary, 0])
+    ),
     IsFolder: true,
     IndexNumber: group.season,
     SeriesId: seriesItem.Id,
@@ -763,6 +784,15 @@ export function buildEpisodeItem(
     SortName: `${String(group.season).padStart(4, '0')}-${String(video.episode ?? 0).padStart(4, '0')}`,
     ServerId: ctx.serverId,
     Type: 'Episode',
+    Etag: imageTag(
+      JSON.stringify([
+        JELLYFIN_DTO_VERSION,
+        id,
+        title,
+        images.Primary,
+        video.overview?.length ?? 0,
+      ])
+    ),
     IsFolder: false,
     MediaType: 'Video',
     VideoType: 'VideoFile',
