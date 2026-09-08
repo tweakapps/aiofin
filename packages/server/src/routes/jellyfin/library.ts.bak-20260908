@@ -53,7 +53,7 @@ function lookup<T, R>(
     concurrency: appConfig.api.jellyfinLookupConcurrency,
     target: opts.target,
     onError: (error: unknown) =>
-      logger.error(
+      logger.debug(
         { err: error instanceof Error ? error.message : String(error) },
         `skipping unresolvable ${opts.what}`
       ),
@@ -657,12 +657,7 @@ async function sendItem(
           },
         ];
       }
-    } catch (e) {
-      logger.error(
-        { err: e instanceof Error ? e.message : String(e), itemId: item.Id },
-        "buildMediaSources failed for item"
-      );
-    }
+    } catch (e) {}
   }
   res.json(stripInternal(item));
 }
@@ -734,7 +729,6 @@ router.get(
       const opts =
         (catalog.extra ?? []).find((e) => e.name === 'genre')?.options ?? [];
       if (!opts.includes(genre)) continue;
-
       const page = await ctx.service.getCatalogPage(catalog, {
         startIndex: 0,
         limit: limit + 1,
@@ -767,7 +761,6 @@ router.get(
       CategoryId: string;
     }[] = [];
     for (const catalog of catalogs) {
-      try {
       const page = await ctx.service.getCatalogPage(catalog, {
         startIndex: 0,
         limit,
@@ -783,12 +776,6 @@ router.get(
           c: catalog.id,
         }),
       });
-      } catch (e) {
-        logger.error(
-          { err: e instanceof Error ? e.message : String(e), catalog: catalog.name },
-          'catalog fetch failed in recommendations'
-        );
-      }
     }
     res.json(out);
   })
