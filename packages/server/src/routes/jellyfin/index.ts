@@ -4,11 +4,10 @@ import { corsMiddleware } from '../../middlewares/cors.js';
 import {
   loginRateLimiter,
   staticRateLimiter,
-  jellyfinBrowseRateLimiter,
-  jellyfinImagesRateLimiter,
+  jellyfinRateLimiter,
   stremioStreamRateLimiter,
 } from '../../middlewares/ratelimit.js';
-import { jellyfinContext } from './context.js';
+import { jellyfinContext, PUBLIC_STATIC_LIKE } from './context.js';
 import systemRouter from './system.js';
 import playbackRouter from './playback.js';
 import libraryRouter from './library.js';
@@ -36,28 +35,17 @@ export function createJellyfinRouter(): Router {
       req.url = req.url.replace(/^\/emby/i, '') || '/';
     next();
   });
-  const CATALOG_LIKE =
-    /^\/(Users\/[^/]+\/)?Items(\/Latest|\/Resume)?$|^\/UserItems\/Resume$|^\/Shows\/NextUp$|^\/Shows\/[^/]+\/(Seasons|Episodes)$|^\/Search\/Hints$|^\/Genres$/i;
   const STREAM_LIKE = /^\/Items\/[^/]+\/(PlaybackInfo|MediaSources)$/i;
-  const ITEM_DETAIL_LIKE =
-    /^\/(Users\/[^/]+\/)?Items\/[^/]+$/i;
-  const IMAGE_LIKE =
-    /^\/Items\/[^/]+\/Images(\/|$)|^\/UserImage(\/|$)/i;
   const LOGIN_LIKE = /^\/Users\/AuthenticateByName$/i;
   router.use((req, res, next) => {
     if (LOGIN_LIKE.test(req.path) && !req.params.encryptedPassword) {
       loginRateLimiter(req, res, next);
-    } else if (IMAGE_LIKE.test(req.path)) {
-      jellyfinImagesRateLimiter(req, res, next);
     } else if (STREAM_LIKE.test(req.path)) {
       stremioStreamRateLimiter(req, res, next);
-    } else if (
-      CATALOG_LIKE.test(req.path) ||
-      ITEM_DETAIL_LIKE.test(req.path)
-    ) {
-      jellyfinBrowseRateLimiter(req, res, next);
-    } else {
+    } else if (PUBLIC_STATIC_LIKE.some((re) => re.test(req.path))) {
       staticRateLimiter(req, res, next);
+    } else {
+      jellyfinRateLimiter(req, res, next);
     }
   });
   router.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {

@@ -297,6 +297,25 @@ const PUBLIC = [
   /^\/userimage$/i,
 ];
 
+/**
+ * Subset of PUBLIC reused by the rate-limiter classifier for genuinely
+ * unauthenticated, cheap, non-Jellyfin-API traffic (System/Info/Public,
+ * Branding/*, QuickConnect/*). Excludes AuthenticateByName (handled by
+ * loginRateLimiter) and image paths (handled by jellyfinRateLimiter).
+ */
+export const PUBLIC_STATIC_LIKE = [
+  /^\/system\/info\/public$/i,
+  /^\/system\/ping$/i,
+  /^\/users\/public$/i,
+  /^\/branding\/(configuration|css|css\.css)$/i,
+  /^\/quickconnect\/enabled$/i,
+  /^\/quickconnect\/initiate$/i,
+  /^\/quickconnect\/connect$/i,
+  /^\/quickconnect\/authorize$/i,
+  /^\/startup\//i,
+  /^\/system\/endpoint$/i,
+];
+
 const LAZY_CONTEXT_PATHS = [/^\/items\/[^/]+\/images(\/|$)/i];
 
 async function buildContext(

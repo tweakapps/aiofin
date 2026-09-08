@@ -126,6 +126,7 @@ async function playbackInfo(
       apiKey: ctx.apiKey,
       encrypt,
       runtimeTicks,
+      withSubtitles: true,
     }
   );
   const normalizedItemId = itemId.replace(/-/g, '').toLowerCase();

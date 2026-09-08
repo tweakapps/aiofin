@@ -148,15 +148,9 @@ const stremioCatalogRateLimiter = lazyLimiter(
   'stremio-catalog'
 );
 
-const jellyfinBrowseRateLimiter = lazyLimiter(
-  () => appConfig.rateLimits.jellyfinBrowse,
-  'jellyfin-browse',
-  jellyfinDeviceKeyExtra
-);
-
-const jellyfinImagesRateLimiter = lazyLimiter(
-  () => appConfig.rateLimits.jellyfinImages,
-  'jellyfin-images',
+const jellyfinRateLimiter = lazyLimiter(
+  () => appConfig.rateLimits.jellyfin,
+  'jellyfin',
   jellyfinDeviceKeyExtra
 );
 
@@ -211,8 +205,7 @@ export {
   animeApiRateLimiter,
   stremioStreamRateLimiter,
   stremioCatalogRateLimiter,
-  jellyfinBrowseRateLimiter,
-  jellyfinImagesRateLimiter,
+  jellyfinRateLimiter,
   stremioManifestRateLimiter,
   stremioSubtitleRateLimiter,
   stremioMetaRateLimiter,

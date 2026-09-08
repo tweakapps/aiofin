@@ -639,6 +639,11 @@ router.get(
   })
 );
 
+function clientMatches(clientName: string, clients: readonly string[]) {
+  const lower = clientName.toLowerCase();
+  return clients.some((c) => c && lower.includes(c.toLowerCase()));
+}
+
 async function sendItem(
   req: Request,
   res: import('express').Response,
@@ -655,8 +660,9 @@ async function sendItem(
     (f) => f.toLowerCase() === 'mediasources'
   );
   const alwaysAttachSources =
-    appConfig.api.jellyfinAlwaysAttachSources &&
-    (descriptor.k === 'movie' || descriptor.k === 'episode');
+    (descriptor.k === 'movie' || descriptor.k === 'episode') &&
+    (appConfig.api.jellyfinAlwaysAttachSources ||
+      clientMatches(ctx.client.name, appConfig.api.jellyfinAttachSourcesClients));
   const target = !(wantsSources || alwaysAttachSources)
     ? null
     : descriptor.k === 'movie'

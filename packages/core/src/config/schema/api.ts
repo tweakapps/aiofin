@@ -193,11 +193,21 @@ export const apiSchema = {
   },
   jellyfinAlwaysAttachSources: {
     schema: z.boolean(),
-    default: true,
+    default: false,
     label: 'Jellyfin: always attach media sources on item detail',
     description:
-      'Resolve and attach the full media source list on single-item requests even when the client does not ask for Fields=MediaSources (needed for SenPlayer-style clients to show a version picker). Costs one stream resolution per item detail view.',
+      'Attach real media sources on item detail for every client (slow: resolves all streams on open). Normally only clients listed in `jellyfinAttachSourcesClients` get this.',
     env: 'JELLYFIN_ALWAYS_ATTACH_SOURCES',
+    requiresRestart: false,
+    secret: false,
+  },
+  jellyfinAttachSourcesClients: {
+    schema: commaSeparatedList,
+    default: ['SenPlayer'],
+    label: 'Jellyfin: clients that always get attached media sources',
+    description:
+      'Client names (case-insensitive substring match against the MediaBrowser Client header) that get real media sources attached on item detail without asking (needed for SenPlayer-style clients to show a version picker). Comma-separated in env form.',
+    env: 'JELLYFIN_ATTACH_SOURCES_CLIENTS',
     requiresRestart: false,
     secret: false,
   },

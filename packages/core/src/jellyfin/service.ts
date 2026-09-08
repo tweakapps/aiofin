@@ -351,16 +351,19 @@ export class JellyfinService {
   async buildMediaSources(
     type: string,
     videoId: string,
-    opts: Omit<MediaSourceBuildOptions, 'subtitles'>
+    opts: Omit<MediaSourceBuildOptions, 'subtitles'> & {
+      withSubtitles?: boolean;
+    }
   ): Promise<{
     sources: JellyfinMediaSource[];
     errors: ResolvedStreams['errors'];
   }> {
-    const resolved = await this.resolveStreams(type, videoId);
+    const { withSubtitles = false, ...buildOpts } = opts;
+    const resolved = await this.resolveStreams(type, videoId, withSubtitles);
     const sources = resolved.streams
       .map((s, i) =>
         buildMediaSource(s, resolved.formatted[i], {
-          ...opts,
+          ...buildOpts,
           subtitles: resolved.subtitles,
         })
       )
