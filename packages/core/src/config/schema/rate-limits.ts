@@ -118,6 +118,12 @@ export const rateLimitsSchema = {
     envPrefix: 'STREMIO_CATALOG',
     label: 'Stremio catalog',
   }),
+  jellyfinBrowse: rateLimit({
+    windowDefault: 5,
+    maxDefault: 300,
+    envPrefix: 'JELLYFIN_BROWSE',
+    label: 'Jellyfin browse',
+  }),
   stremioManifest: rateLimit({
     windowDefault: 5,
     maxDefault: 5,

@@ -1,10 +1,10 @@
 import express, { type Router } from 'express';
-import { isEncrypted } from '@aiostreams/core';
+import { isEncrypted, APIError, constants } from '@aiostreams/core';
 import { corsMiddleware } from '../../middlewares/cors.js';
 import {
   loginRateLimiter,
   staticRateLimiter,
-  stremioCatalogRateLimiter,
+  jellyfinBrowseRateLimiter,
   stremioStreamRateLimiter,
 } from '../../middlewares/ratelimit.js';
 import { jellyfinContext } from './context.js';
@@ -38,17 +38,29 @@ export function createJellyfinRouter(): Router {
   const CATALOG_LIKE =
     /^\/(Users\/[^/]+\/)?Items(\/Latest|\/Resume)?$|^\/UserItems\/Resume$|^\/Shows\/NextUp$|^\/Shows\/[^/]+\/(Seasons|Episodes)$|^\/Search\/Hints$|^\/Genres$/i;
   const STREAM_LIKE = /^\/Items\/[^/]+\/(PlaybackInfo|MediaSources)$/i;
+  const ITEM_DETAIL_LIKE =
+    /^\/(Users\/[^/]+\/)?Items\/[^/]+$/i;
   const LOGIN_LIKE = /^\/Users\/AuthenticateByName$/i;
   router.use((req, res, next) => {
     if (LOGIN_LIKE.test(req.path) && !req.params.encryptedPassword) {
       loginRateLimiter(req, res, next);
     } else if (STREAM_LIKE.test(req.path)) {
       stremioStreamRateLimiter(req, res, next);
-    } else if (CATALOG_LIKE.test(req.path)) {
-      stremioCatalogRateLimiter(req, res, next);
+    } else if (
+      CATALOG_LIKE.test(req.path) ||
+      ITEM_DETAIL_LIKE.test(req.path)
+    ) {
+      jellyfinBrowseRateLimiter(req, res, next);
     } else {
       staticRateLimiter(req, res, next);
     }
+  });
+  router.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (err instanceof APIError && err.code === constants.ErrorCode.RATE_LIMIT_EXCEEDED) {
+      res.status(429).json({ Message: 'Too many requests, please slow down' });
+      return;
+    }
+    next(err);
   });
   router.use(jellyfinContext);
   router.use(systemRouter);

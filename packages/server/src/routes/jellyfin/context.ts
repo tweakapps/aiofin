@@ -453,8 +453,8 @@ export function jf(
         { path: req.originalUrl, err: msg },
         'jellyfin handler failed'
       );
-      if (!res.headersSent) res.status(500).json({ Message: msg });
-      else next(error);
+      if (!res.headersSent) res.status(500).json({ Message: 'Internal server error' });
+      else if (!res.writableEnded) res.end();
     }
   };
 }

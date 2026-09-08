@@ -10,13 +10,15 @@ import {
   Cache,
   REDIS_PREFIX,
 } from '@aiostreams/core';
+import { parseMediaBrowserHeader } from '../routes/jellyfin/context.js';
 
 const logger = createLogger('server');
 
 const createRateLimiter = (
   windowMs: number,
   maxRequests: number,
-  prefix: string = ''
+  prefix: string = '',
+  keyExtra?: (req: Request) => string | undefined
 ) => {
   if (appConfig.rateLimits.disabled) {
     return (req: Request, res: Response, next: NextFunction) => next();
@@ -41,7 +43,8 @@ const createRateLimiter = (
     keyGenerator: (req: Request) => {
       const ip = req.requestIp || req.userIp || req.ip;
       const ipKey = ip ? ipKeyGenerator(ip) : '';
-      return prefix + ':' + ipKey;
+      const extra = keyExtra ? keyExtra(req) : undefined;
+      return extra ? prefix + ':' + ipKey + ':' + extra : prefix + ':' + ipKey;
     },
     handler: (
       req: Request,
@@ -70,16 +73,39 @@ const createRateLimiter = (
  */
 const lazyLimiter = (
   resolve: () => { window: number; maxRequests: number },
-  prefix: string
+  prefix: string,
+  keyExtra?: (req: Request) => string | undefined
 ) => {
   let limiter: ReturnType<typeof createRateLimiter> | null = null;
   return (req: Request, res: Response, next: NextFunction) => {
     if (!limiter) {
       const { window, maxRequests } = resolve();
-      limiter = createRateLimiter(window * 1000, maxRequests, prefix);
+      limiter = createRateLimiter(
+        window * 1000,
+        maxRequests,
+        prefix,
+        keyExtra
+      );
     }
     return limiter(req, res, next);
   };
+};
+
+/**
+ * Keys the Jellyfin browse limiter by device (in addition to IP) so one
+ * Infuse device fanning out N parallel library requests doesn't starve the
+ * bucket for every other device sharing the same IP/NAT. Falls back to the
+ * first 12 chars of `api_key` when no MediaBrowser/Emby auth header is
+ * present, else undefined (IP-only).
+ */
+const jellyfinDeviceKeyExtra = (req: Request): string | undefined => {
+  const mb = parseMediaBrowserHeader(
+    req.get('authorization') ?? req.get('x-emby-authorization')
+  );
+  if (mb.deviceid) return mb.deviceid;
+  const apiKey =
+    typeof req.query.api_key === 'string' ? req.query.api_key : undefined;
+  return apiKey ? apiKey.slice(0, 12) : undefined;
 };
 
 const userApiRateLimiter = lazyLimiter(
@@ -120,6 +146,12 @@ const stremioStreamRateLimiter = lazyLimiter(
 const stremioCatalogRateLimiter = lazyLimiter(
   () => appConfig.rateLimits.stremioCatalog,
   'stremio-catalog'
+);
+
+const jellyfinBrowseRateLimiter = lazyLimiter(
+  () => appConfig.rateLimits.jellyfinBrowse,
+  'jellyfin-browse',
+  jellyfinDeviceKeyExtra
 );
 
 const stremioManifestRateLimiter = lazyLimiter(
@@ -173,6 +205,7 @@ export {
   animeApiRateLimiter,
   stremioStreamRateLimiter,
   stremioCatalogRateLimiter,
+  jellyfinBrowseRateLimiter,
   stremioManifestRateLimiter,
   stremioSubtitleRateLimiter,
   stremioMetaRateLimiter,

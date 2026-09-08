@@ -4,6 +4,9 @@ import {
   config as appConfig,
   createLogger,
   encryptString,
+  type CatalogPageOptions,
+  type CatalogPageResult,
+  type JellyfinService,
 } from '@aiostreams/core';
 import {
   buildGenreItem,
@@ -43,6 +46,27 @@ const logger = createLogger('jellyfin');
 const router: Router = Router({ mergeParams: true });
 
 const MAX_MEDIA_SOURCES = 50;
+
+async function safeCatalogPage(
+  ctx: JellyfinRequestContext,
+  catalog: Parameters<JellyfinService['getCatalogPage']>[0],
+  opts: CatalogPageOptions,
+  what: string
+): Promise<CatalogPageResult> {
+  try {
+    return await ctx.service.getCatalogPage(catalog, opts);
+  } catch (error) {
+    logger.error(
+      {
+        err: error instanceof Error ? error.message : String(error),
+        catalog: catalog.id,
+        type: catalog.type,
+      },
+      `catalog fetch failed in ${what}`
+    );
+    return { items: [], hasMore: false, capped: false };
+  }
+}
 
 function lookup<T, R>(
   items: readonly T[],
@@ -330,12 +354,12 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     const catalog = await ctx.service.findCatalog(catalogDesc.t, catalogDesc.c);
     if (!catalog) return list([], 0, startIndex);
     const g = parent?.k === 'genre' ? parent.g : genre;
-    const page = await ctx.service.getCatalogPage(catalog, {
-      startIndex,
-      limit,
-      search: searchTerm,
-      genre: g,
-    });
+    const page = await safeCatalogPage(
+      ctx,
+      catalog,
+      { startIndex, limit, search: searchTerm, genre: g },
+      'Items by view'
+    );
     const items = await itemsFromPreviews(ctx, page.items, parentId);
     const filtered = applySort(
       req,
@@ -374,10 +398,15 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     let offset = 0;
     for (const catalog of usable) {
       if (items.length >= limit) break;
-      const page = await ctx.service.getCatalogPage(catalog, {
-        startIndex: Math.max(0, startIndex - offset),
-        limit: limit - items.length + Math.max(0, offset - startIndex),
-      });
+      const page = await safeCatalogPage(
+        ctx,
+        catalog,
+        {
+          startIndex: Math.max(0, startIndex - offset),
+          limit: limit - items.length + Math.max(0, offset - startIndex),
+        },
+        'Items recursive'
+      );
       const viewId = encodeJellyfinId({
         k: 'view',
         t: catalog.type,
@@ -426,10 +455,12 @@ router.get(
       if (d?.k === 'view') {
         const catalog = await ctx.service.findCatalog(d.t, d.c);
         if (catalog) {
-          const page = await ctx.service.getCatalogPage(catalog, {
-            startIndex: 0,
-            limit,
-          });
+          const page = await safeCatalogPage(
+            ctx,
+            catalog,
+            { startIndex: 0, limit },
+            'Latest by view'
+          );
           items = await itemsFromPreviews(ctx, page.items, parentId);
         }
       }
@@ -444,10 +475,12 @@ router.get(
       items = await lookup(
         usable,
         async (catalog) => {
-          const page = await ctx.service.getCatalogPage(catalog, {
-            startIndex: 0,
-            limit: perCatalog,
-          });
+          const page = await safeCatalogPage(
+            ctx,
+            catalog,
+            { startIndex: 0, limit: perCatalog },
+            'Latest'
+          );
           const built = await itemsFromPreviews(
             ctx,
             page.items,
@@ -735,11 +768,12 @@ router.get(
         (catalog.extra ?? []).find((e) => e.name === 'genre')?.options ?? [];
       if (!opts.includes(genre)) continue;
 
-      const page = await ctx.service.getCatalogPage(catalog, {
-        startIndex: 0,
-        limit: limit + 1,
-        genre,
-      });
+      const page = await safeCatalogPage(
+        ctx,
+        catalog,
+        { startIndex: 0, limit: limit + 1, genre },
+        'Similar'
+      );
       const items = (
         await itemsFromPreviews(
           ctx,
@@ -767,11 +801,12 @@ router.get(
       CategoryId: string;
     }[] = [];
     for (const catalog of catalogs) {
-      try {
-      const page = await ctx.service.getCatalogPage(catalog, {
-        startIndex: 0,
-        limit,
-      });
+      const page = await safeCatalogPage(
+        ctx,
+        catalog,
+        { startIndex: 0, limit },
+        'Recommendations'
+      );
       const items = await itemsFromPreviews(ctx, page.items);
       out.push({
         Items: items.map(stripInternal),
@@ -783,12 +818,6 @@ router.get(
           c: catalog.id,
         }),
       });
-      } catch (e) {
-        logger.error(
-          { err: e instanceof Error ? e.message : String(e), catalog: catalog.name },
-          'catalog fetch failed in recommendations'
-        );
-      }
     }
     res.json(out);
   })
