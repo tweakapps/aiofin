@@ -608,7 +608,10 @@ async function sendItem(
   const wantsSources = qlist(req, 'Fields').some(
     (f) => f.toLowerCase() === 'mediasources'
   );
-  const target = !wantsSources
+  const alwaysAttachSources =
+    appConfig.api.jellyfinAlwaysAttachSources &&
+    (descriptor.k === 'movie' || descriptor.k === 'episode');
+  const target = !(wantsSources || alwaysAttachSources)
     ? null
     : descriptor.k === 'movie'
       ? {
