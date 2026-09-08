@@ -269,27 +269,87 @@ export function collectionTypeFor(type: string): string | undefined {
   return undefined;
 }
 
-function peopleFrom(meta: MetaPreview | Meta) {
-  const people: { Name: string; Id: string; Type: string; Role?: string }[] =
-    [];
-  const push = (name: string, type: string) => {
-    if (!name) return;
-    people.push({
+type JellyfinPerson = {
+  Name: string;
+  Id: string;
+  Type: string;
+  Role?: string;
+  PrimaryImageTag?: string;
+};
+
+const MAX_PEOPLE = 30;
+
+export function peopleFrom(ctx: ItemBuildContext, meta: MetaPreview | Meta) {
+  const people: JellyfinPerson[] = [];
+  const seen = new Set<string>();
+  const push = (
+    name: string,
+    type: string,
+    role?: string,
+    photo?: string
+  ): void => {
+    if (!name || people.length >= MAX_PEOPLE) return;
+    const key = name.trim().toLowerCase();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    const personId = encodeJellyfinId({ k: 'person', n: name });
+    const entry: JellyfinPerson = {
       Name: name,
-      Id: encodeJellyfinId({ k: 'person', n: name }),
+      Id: personId,
       Type: type,
-    });
+    };
+    if (role) entry.Role = role;
+    if (photo) {
+      rememberImages(ctx.uuid, personId, { Primary: photo }, true);
+      entry.PrimaryImageTag = imageTag(photo);
+    }
+    people.push(entry);
   };
+
+  const appExtras = (meta as Record<string, unknown>).app_extras as
+    | Record<string, unknown>
+    | undefined;
+
+  const extraCast = Array.isArray(appExtras?.cast) ? appExtras!.cast : [];
+  for (const c of extraCast) {
+    if (typeof c === 'string') {
+      push(c, 'Actor');
+      continue;
+    }
+    if (c && typeof c === 'object') {
+      const rec = c as Record<string, unknown>;
+      const name = typeof rec.name === 'string' ? rec.name : undefined;
+      if (!name) continue;
+      const character =
+        typeof rec.character === 'string' ? rec.character : undefined;
+      const photo = typeof rec.photo === 'string' ? rec.photo : undefined;
+      push(name, 'Actor', character, photo);
+    }
+  }
+
   const castList = Array.isArray(meta.cast)
     ? meta.cast
     : linksByCategory(meta, 'Cast');
   castList.forEach((c) => push(c, 'Actor'));
+
+  const extraDirectors = [
+    ...(Array.isArray(appExtras?.director) ? appExtras!.director : []),
+    ...(Array.isArray(appExtras?.directors) ? appExtras!.directors : []),
+  ].filter((d): d is string => typeof d === 'string');
+  extraDirectors.forEach((d) => push(d, 'Director'));
+
   const directors = Array.isArray(meta.director)
     ? meta.director.filter((d): d is string => typeof d === 'string')
     : typeof meta.director === 'string'
       ? [meta.director]
       : linksByCategory(meta, 'Directors');
   directors.forEach((d) => push(d, 'Director'));
+
+  const extraWriters = Array.isArray(appExtras?.writers)
+    ? appExtras!.writers.filter((w): w is string => typeof w === 'string')
+    : [];
+  extraWriters.forEach((w) => push(w, 'Writer'));
+
   linksByCategory(meta, 'Writers').forEach((w) => push(w, 'Writer'));
   return people;
 }
@@ -326,19 +386,6 @@ export function stubMediaSources(
       Id: itemId,
       ETag: itemId,
       Name: name,
-      Path: `/aiostreams/${itemId}`,
-      Protocol: 'File',
-      Type: 'Default',
-      SupportsDirectPlay: true,
-      SupportsDirectStream: true,
-      SupportsTranscoding: false,
-      MediaStreams: [],
-      Formats: [],
-    },
-    {
-      Id: streamIdToMediaSourceId(`${itemId}-stub2`),
-      ETag: itemId,
-      Name: `${name} (2)`,
       Path: `/aiostreams/${itemId}`,
       Protocol: 'File',
       Type: 'Default',
@@ -413,17 +460,20 @@ export function buildGenreItem(
 
 export function buildPersonItem(
   ctx: ItemBuildContext,
-  name: string
+  name: string,
+  photo?: string
 ): JellyfinItem {
   const id = encodeJellyfinId({ k: 'person', n: name });
+  if (photo) rememberImages(ctx.uuid, id, { Primary: photo }, true);
   return {
     Id: id,
     Name: name,
     ServerId: ctx.serverId,
     Type: 'Person',
     IsFolder: false,
-    ImageTags: {},
+    ImageTags: photo ? { Primary: imageTag(photo) } : {},
     BackdropImageTags: [],
+    PrimaryImageAspectRatio: 0.6667,
     UserData: defaultUserData(id),
   };
 }
@@ -497,7 +547,7 @@ export function buildMetaItem(
       Name: g,
       Id: encodeJellyfinId({ k: 'genre', t: meta.type, c: '', g }),
     })),
-    People: peopleFrom(meta),
+    People: peopleFrom(ctx, meta),
     Studios: [],
     Tags: [],
     Taglines: [],

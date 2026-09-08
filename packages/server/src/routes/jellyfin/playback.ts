@@ -369,7 +369,13 @@ interface ResolvedImage {
   public: boolean;
 }
 
-const ARTWORK_KINDS = new Set(['movie', 'series', 'season', 'episode']);
+const ARTWORK_KINDS = new Set([
+  'movie',
+  'series',
+  'season',
+  'episode',
+  'person',
+]);
 
 const inflightRebuilds = new Map<
   string,
@@ -439,6 +445,7 @@ async function imageUrlFor(
   const d = await decodeJellyfinId(id);
   if (!d) return null;
   if (!ARTWORK_KINDS.has(d.k)) return null;
+  if (d.k === 'person') return null;
   if (opts.rebuild !== false && !remembered?.complete) {
     const rebuilt = pick((await rebuildImages(uuid, getCtx, d, id))?.images);
     if (rebuilt) return { url: rebuilt, public: false };
@@ -454,14 +461,26 @@ function lazyCtx(req: Request): () => Promise<JellyfinRequestContext | null> {
       : (req.jfLazy?.() ?? Promise.resolve(null));
 }
 
+async function fallbackImageUrl(
+  itemId: string,
+  type: string
+): Promise<string | null> {
+  const id = itemId.replace(/-/g, '').toLowerCase();
+  const d = await decodeJellyfinId(id).catch(() => null);
+  if (!d) return null;
+  return metahubImageUrl(d, type.toLowerCase());
+}
+
 router.get(
   ['/Items/:itemId/Images/:type', '/Items/:itemId/Images/:type/:index'],
   async (req, res) => {
+    const itemIdParam = param(req, 'itemId');
+    const typeParam = param(req, 'type');
     const result = await imageUrlFor(
       req.uuid,
       lazyCtx(req),
-      param(req, 'itemId'),
-      param(req, 'type')
+      itemIdParam,
+      typeParam
     ).catch(() => null);
     if (!result) {
       res.status(404).end();
@@ -474,6 +493,17 @@ router.get(
       const ims = req.headers['if-modified-since'];
       if (typeof ims === 'string') headers['if-modified-since'] = ims;
       const upstream = await relay(result.url, headers);
+      if (upstream.status >= 400) {
+        const fallbackUrl = result.public
+          ? null
+          : await fallbackImageUrl(itemIdParam, typeParam);
+        if (fallbackUrl) {
+          res.redirect(302, fallbackUrl);
+        } else {
+          res.status(404).end();
+        }
+        return;
+      }
       res.status(upstream.status);
       for (const h of [
         'content-type',
@@ -495,13 +525,18 @@ router.get(
         res
       ).catch(() => undefined);
     } catch (error) {
-      logger.debug(
-        { err: error instanceof Error ? error.message : String(error) },
+      logger.warn(
+        {
+          err: error instanceof Error ? error.message : String(error),
+          url: result.url,
+          itemId: itemIdParam,
+          type: typeParam,
+        },
         'image relay failed'
       );
       if (res.headersSent) return;
       if (result.public) res.redirect(302, result.url);
-      else res.status(502).end();
+      else res.status(404).end();
     }
   }
 );
