@@ -1,0 +1,123 @@
+name: JF Docker Image
+
+on:
+  push:
+    branches: [release]
+    tags: ['jf-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE: ghcr.io/${{ github.repository_owner }}/aiostreams-jf
+
+jobs:
+  build:
+    name: build (${{ matrix.suffix }})
+    permissions:
+      packages: write
+      contents: read
+    strategy:
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Generate metadata
+        run: node scripts/generateMetadata.cjs --channel=stable
+
+      - name: Build & Push
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          platforms: ${{ matrix.platform }}
+          push: true
+          context: .
+          file: ./Dockerfile
+          outputs: type=image,name=${{ env.IMAGE }},push-by-digest=true,name-canonical=true
+          cache-from: type=gha,scope=${{ matrix.suffix }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.suffix }}
+
+      - name: Export digest
+        run: echo "${{ steps.build.outputs.digest }}" > "/tmp/${{ matrix.suffix }}"
+
+      - name: Upload digest artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.suffix }}
+          path: /tmp/${{ matrix.suffix }}
+          retention-days: 1
+
+  merge:
+    name: Merge manifests
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download digests
+        uses: actions/download-artifact@v8
+        with:
+          path: /tmp/digests
+          pattern: '{amd64,arm64}'
+          merge-multiple: true
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Calculate tags
+        id: tags
+        run: |
+          declare TAGS="sha-$(git rev-parse --short HEAD)"
+          if [[ "${{ github.ref_type }}" == "branch" ]]; then
+            TAGS="${TAGS} release"
+          elif [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAGS="${TAGS} ${{ github.ref_name }}"
+          fi
+          echo "tags=${TAGS}" >> "$GITHUB_OUTPUT"
+
+      - name: Create and push manifests
+        env:
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          for tag in ${TAGS}; do
+            docker buildx imagetools create \
+              -t "${{ env.IMAGE }}:${tag}" \
+              "${{ env.IMAGE }}@$(cat /tmp/digests/amd64)" \
+              "${{ env.IMAGE }}@$(cat /tmp/digests/arm64)"
+          done

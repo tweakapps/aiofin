@@ -7,6 +7,8 @@
 >
 > **Build:** run `node scripts/generateMetadata.cjs` before `docker build` so the version shows correctly. **Update:** merge the new upstream tag into `release` (only the hook files can conflict), rebuild. The exact port is documented in `.planning/phases/01-port/jellyfin-layer.patch`.
 >
+> **Docker image:** `ghcr.io/tweakapps/aiostreams-jf:release` — built automatically by `.github/workflows/jf-docker.yml` on every push to `release` (and `jf-v*` tags). VPS deploy: `docker compose pull && docker compose up -d`.
+>
 > Upstream README follows.
 
 <p align="center">
