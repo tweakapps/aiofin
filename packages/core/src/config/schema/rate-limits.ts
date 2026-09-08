@@ -124,6 +124,12 @@ export const rateLimitsSchema = {
     envPrefix: 'JELLYFIN_BROWSE',
     label: 'Jellyfin browse',
   }),
+  jellyfinImages: rateLimit({
+    windowDefault: 5,
+    maxDefault: 1500,
+    envPrefix: 'JELLYFIN_IMAGES',
+    label: 'Jellyfin images',
+  }),
   stremioManifest: rateLimit({
     windowDefault: 5,
     maxDefault: 5,

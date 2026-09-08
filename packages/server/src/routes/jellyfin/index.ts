@@ -5,6 +5,7 @@ import {
   loginRateLimiter,
   staticRateLimiter,
   jellyfinBrowseRateLimiter,
+  jellyfinImagesRateLimiter,
   stremioStreamRateLimiter,
 } from '../../middlewares/ratelimit.js';
 import { jellyfinContext } from './context.js';
@@ -40,10 +41,14 @@ export function createJellyfinRouter(): Router {
   const STREAM_LIKE = /^\/Items\/[^/]+\/(PlaybackInfo|MediaSources)$/i;
   const ITEM_DETAIL_LIKE =
     /^\/(Users\/[^/]+\/)?Items\/[^/]+$/i;
+  const IMAGE_LIKE =
+    /^\/Items\/[^/]+\/Images(\/|$)|^\/UserImage(\/|$)/i;
   const LOGIN_LIKE = /^\/Users\/AuthenticateByName$/i;
   router.use((req, res, next) => {
     if (LOGIN_LIKE.test(req.path) && !req.params.encryptedPassword) {
       loginRateLimiter(req, res, next);
+    } else if (IMAGE_LIKE.test(req.path)) {
+      jellyfinImagesRateLimiter(req, res, next);
     } else if (STREAM_LIKE.test(req.path)) {
       stremioStreamRateLimiter(req, res, next);
     } else if (
