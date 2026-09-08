@@ -1,3 +1,14 @@
+> ## AIOStreams-JF — Jellyfin compatibility layer on upstream AIOStreams
+> This fork tracks **upstream AIOStreams release tags** on the `release` branch and adds the **Jellyfin compatibility layer** originally published by [qooode/AIOStreams](https://github.com/qooode/AIOStreams), ported onto v2.34.0 (`main` mirrors upstream dev, untouched).
+>
+> **Use it:** point any Jellyfin client (Infuse, SenPlayer, Swiftfin, Findroid, Jellyfin web/desktop, Kodi…) at `https://<your-host>/jellyfin`, username = your **profile UUID**, password = your **profile password**. Libraries = the profile's catalogs, metadata/seasons = the profile's meta addons (e.g. AioMetadata), sources = the profile's streams with your formatter labels, direct play (302 redirect), per-profile resume / next-up / favourites. No Jellyfin server, no transcoding.
+>
+> **Settings** (env): `ENABLE_JELLYFIN_API` (default true), `JELLYFIN_MAX_CATALOG_ITEMS`, `JELLYFIN_LOOKUP_CONCURRENCY`, `JELLYFIN_RELAY_TIMEOUT`, `JELLYFIN_ALWAYS_ATTACH_SOURCES` (default true; needed for clients like SenPlayer to show a version picker).
+>
+> **Build:** run `node scripts/generateMetadata.cjs` before `docker build` so the version shows correctly. **Update:** merge the new upstream tag into `release` (only the hook files can conflict), rebuild. The exact port is documented in `.planning/phases/01-port/jellyfin-layer.patch`.
+>
+> Upstream README follows.
+
 <p align="center">
     <picture>
           <source media="(prefers-color-scheme: dark)" srcset="https://cdn.jsdelivr.net/gh/selfhst/icons/png/aiostreams-light.png">
