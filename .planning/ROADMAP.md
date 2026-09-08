@@ -9,7 +9,7 @@
 - [x] **Phase 1: Port** (completed 2026-09-08) - Jellyfin layer ported onto v2.34.0, building and tested
 - [x] **Phase 2: Parallel Deploy** (completed 2026-09-08; GHCR push deferred) - Image on GHCR, parallel container on the Dubai VPS with a DB copy
 - [ ] **Phase 3: Profile & Clients** - AioMetadata in the profile, Infuse/SenPlayer checklist with evidence
-- [ ] **Phase 6: Detail Page & Metadata** - Cheap, scrobble-safe item detail; single Jellyfin limiter design; certification, provider ids, crew photos, episode cast, season posters, person pages
+- [x] **Phase 6: Detail Page & Metadata** (completed 2026-09-09; jf7 live on the parallel container) - Cheap, scrobble-safe item detail; single Jellyfin limiter design; certification, provider ids, crew photos, episode cast, season posters, person pages
 - [ ] **Phase 4: Cut-over** - Production on the ported image with rollback, all profiles
 - [x] **Phase 5: Jellyfin Hardening** (completed 2026-09-08; jf3 live on the parallel container; cast photos + service reuse to be eyeballed by Maged in Infuse) - Fix the Infuse tvOS home-screen 429s, cast photos, per-user service caching, error isolation and contract bugs found in the 2026-09-08 audit
 
