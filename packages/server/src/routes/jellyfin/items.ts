@@ -109,7 +109,11 @@ export function findEpisode(
 export async function itemFromDescriptor(
   ctx: JellyfinRequestContext,
   d: JellyfinItemDescriptor,
-  opts: { playstate?: JellyfinPlaystateRow; seriesPlaystates?: boolean } = {}
+  opts: {
+    playstate?: JellyfinPlaystateRow;
+    seriesPlaystates?: boolean;
+    skipUserData?: boolean;
+  } = {}
 ): Promise<JellyfinItem | null> {
   switch (d.k) {
     case 'view': {
@@ -139,7 +143,7 @@ export async function itemFromDescriptor(
         { ...base, type: d.t },
         { userData: opts.playstate, complete: !!meta }
       );
-      if (!opts.playstate) await attachUserData(ctx, [item]);
+      if (!opts.playstate && !opts.skipUserData) await attachUserData(ctx, [item]);
       return item;
     }
     case 'season': {
@@ -201,11 +205,12 @@ export async function itemFromDescriptor(
 
 export async function itemFromId(
   ctx: JellyfinRequestContext,
-  id: string
+  id: string,
+  opts: { skipUserData?: boolean } = {}
 ): Promise<{ item: JellyfinItem; descriptor: JellyfinItemDescriptor } | null> {
   const d = await decodeJellyfinId(id);
   if (!d) return null;
-  const item = await itemFromDescriptor(ctx, d);
+  const item = await itemFromDescriptor(ctx, d, opts);
   return item ? { item, descriptor: d } : null;
 }
 

@@ -148,6 +148,7 @@ interface CachedUser {
   version: string;
   userData: UserData;
   at: number;
+  service?: JellyfinService;
 }
 const userCache = new Map<string, CachedUser>();
 const userInFlight = new Map<string, Promise<CachedUser | null>>();
@@ -170,11 +171,10 @@ async function resolveUuid(uuidOrAlias: string): Promise<string | null> {
   return alias?.uuid ?? null;
 }
 
-export async function resolveUserData(
+async function getOrBuildCachedUser(
   uuidOrAlias: string,
-  encryptedPassword: string,
-  ip?: string
-): Promise<{ uuid: string; userData: UserData } | null> {
+  encryptedPassword: string
+): Promise<CachedUser | null> {
   const uuid = await resolveUuid(uuidOrAlias);
   if (!uuid) return null;
   const key = `${uuid}|${encryptedPassword}`;
@@ -191,9 +191,32 @@ export async function resolveUserData(
     entry = await inFlight;
     if (!entry) return null;
   }
+  return entry;
+}
+
+export async function resolveUserData(
+  uuidOrAlias: string,
+  encryptedPassword: string,
+  ip?: string
+): Promise<{ uuid: string; userData: UserData } | null> {
+  const entry = await getOrBuildCachedUser(uuidOrAlias, encryptedPassword);
+  if (!entry) return null;
   const userData = structuredClone(entry.userData);
   userData.ip = ip;
   return { uuid: entry.uuid, userData };
+}
+
+/**
+ * Returns the cached user entry itself (not a per-request clone), so callers
+ * that need to reuse or attach state (e.g. a JellyfinService instance) can do
+ * so keyed identically to the user cache (`uuid|encryptedPassword`), and have
+ * it evicted automatically alongside the CachedUser entry.
+ */
+export async function getCachedUserEntry(
+  uuidOrAlias: string,
+  encryptedPassword: string
+): Promise<CachedUser | null> {
+  return getOrBuildCachedUser(uuidOrAlias, encryptedPassword);
 }
 
 async function freshCachedUser(key: string): Promise<CachedUser | null> {
@@ -284,21 +307,28 @@ async function buildContext(
   reusableToken: string | undefined,
   preAuthenticated: boolean
 ): Promise<JellyfinRequestContext | null> {
-  const resolved = await resolveUserData(uuid, encryptedPassword, req.userIp);
-  if (!resolved) return null;
+  const entry = await getCachedUserEntry(uuid, encryptedPassword);
+  if (!entry) return null;
+  // Per-request clone carries the caller's IP; the service is built from the
+  // cached (clone-source) userData below so it never captures a request IP.
+  const userData = structuredClone(entry.userData);
+  userData.ip = req.userIp;
+  if (!entry.service) {
+    entry.service = new JellyfinService(entry.userData);
+  }
   const baseUrl = `${requestOrigin(req)}${req.baseUrl}`.replace(/\/$/, '');
   const apiKey =
     reusableToken ??
-    mintToken({ u: resolved.uuid, p: encryptedPassword, d: mb.deviceid });
-  const serverId = serverIdFor(resolved.uuid);
+    mintToken({ u: entry.uuid, p: encryptedPassword, d: mb.deviceid });
+  const serverId = serverIdFor(entry.uuid);
   return {
-    uuid: resolved.uuid,
+    uuid: entry.uuid,
     encryptedPassword,
-    userData: resolved.userData,
-    userId: uuidToJellyfinUserId(resolved.uuid),
+    userData,
+    userId: uuidToJellyfinUserId(entry.uuid),
     serverId,
-    service: new JellyfinService(resolved.userData),
-    build: { uuid: resolved.uuid, serverId },
+    service: entry.service,
+    build: { uuid: entry.uuid, serverId },
     baseUrl,
     apiKey,
     client: {

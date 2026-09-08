@@ -229,16 +229,19 @@ async function itemsFromPlaystates(
   rows: Awaited<ReturnType<typeof JellyfinRepository.listFavorites>>,
   limit: number
 ): Promise<JellyfinItem[]> {
-  return lookup(
+  const items = await lookup(
     rows.slice(0, limit),
     async (row) => {
       const item = await itemFromDescriptor(ctx, row.payload, {
         playstate: row,
+        skipUserData: true,
       });
       return item ? [item] : [];
     },
     { what: 'item' }
   );
+  await attachUserData(ctx, items);
+  return items;
 }
 
 async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
@@ -263,11 +266,12 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     const items = await lookup(
       ids.slice(0, 200),
       async (id) => {
-        const r = await itemFromId(ctx, id);
+        const r = await itemFromId(ctx, id, { skipUserData: true });
         return r ? [r.item] : [];
       },
       { what: 'id' }
     );
+    await attachUserData(ctx, items);
     return list(filterByType(items, types), items.length, 0);
   }
 

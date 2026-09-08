@@ -24,6 +24,17 @@ type Catalog = NonNullable<Manifest['catalogs']>[number];
 
 const STREMIO_PAGE_GUESS = 100;
 
+const CATALOG_MEMO_TTL_MS = 60_000;
+const META_MEMO_TTL_MS = 5 * 60_000;
+const SUBTITLE_MEMO_TTL_MS = 5 * 60_000;
+const STREAMS_MEMO_TTL_MS = 60_000;
+const MEMO_MAX_ENTRIES = 2_000;
+
+interface MemoEntry<T> {
+  promise: Promise<T>;
+  expiresAt: number;
+}
+
 export interface CatalogPageOptions {
   startIndex: number;
   limit: number;
@@ -47,12 +58,40 @@ export interface ResolvedStreams {
 export class JellyfinService {
   private engine: AIOStreams | null = null;
   private initPromise: Promise<AIOStreams> | null = null;
-  private readonly metaMemo = new Map<string, Promise<ParsedMeta | null>>();
-  private readonly catalogMemo = new Map<string, Promise<MetaPreview[]>>();
-  private readonly subtitleMemo = new Map<string, Promise<Subtitle[]>>();
-  private readonly streamsMemo = new Map<string, Promise<ResolvedStreams>>();
+  private readonly metaMemo = new Map<string, MemoEntry<ParsedMeta | null>>();
+  private readonly catalogMemo = new Map<string, MemoEntry<MetaPreview[]>>();
+  private readonly subtitleMemo = new Map<string, MemoEntry<Subtitle[]>>();
+  private readonly streamsMemo = new Map<string, MemoEntry<ResolvedStreams>>();
 
   constructor(readonly userData: UserData) {}
+
+  /**
+   * Memoizes `producer()` under `key` in `map` for `ttlMs`. Rejections are
+   * evicted immediately so a transient failure isn't cached. The map is
+   * capped at MEMO_MAX_ENTRIES entries, dropping the oldest insertion when
+   * exceeded (Map iteration order == insertion order).
+   */
+  private memo<T>(
+    map: Map<string, MemoEntry<T>>,
+    key: string,
+    ttlMs: number,
+    producer: () => Promise<T>
+  ): Promise<T> {
+    const existing = map.get(key);
+    if (existing && Date.now() < existing.expiresAt) {
+      return existing.promise;
+    }
+    const promise = producer().catch((err) => {
+      map.delete(key);
+      throw err;
+    });
+    if (map.size >= MEMO_MAX_ENTRIES) {
+      const oldest = map.keys().next().value;
+      if (oldest !== undefined) map.delete(oldest);
+    }
+    map.set(key, { promise, expiresAt: Date.now() + ttlMs });
+    return promise;
+  }
 
   async getEngine(): Promise<AIOStreams> {
     if (this.engine) return this.engine;
@@ -85,22 +124,17 @@ export class JellyfinService {
     extras?: string
   ): Promise<MetaPreview[]> {
     const k = `${type}|${id}|${extras ?? ''}`;
-    let memo = this.catalogMemo.get(k);
-    if (!memo) {
-      memo = (async () => {
-        const engine = await this.getEngine();
-        const res = await engine.getCatalog(type, id, extras);
-        if (res.errors?.length) {
-          logger.debug(
-            { type, id, extras, errors: res.errors.length },
-            'catalog returned with errors'
-          );
-        }
-        return (res.data ?? []).filter((m) => m && m.id);
-      })();
-      this.catalogMemo.set(k, memo);
-    }
-    return memo;
+    return this.memo(this.catalogMemo, k, CATALOG_MEMO_TTL_MS, async () => {
+      const engine = await this.getEngine();
+      const res = await engine.getCatalog(type, id, extras);
+      if (res.errors?.length) {
+        logger.debug(
+          { type, id, extras, errors: res.errors.length },
+          'catalog returned with errors'
+        );
+      }
+      return (res.data ?? []).filter((m) => m && m.id);
+    });
   }
 
   async getCatalogPage(
@@ -201,16 +235,11 @@ export class JellyfinService {
 
   getMeta(type: string, id: string): Promise<ParsedMeta | null> {
     const k = `${type}|${id}`;
-    let memo = this.metaMemo.get(k);
-    if (!memo) {
-      memo = (async () => {
-        const engine = await this.getEngine();
-        const res = await engine.getMeta(type, id);
-        return res.data ?? null;
-      })();
-      this.metaMemo.set(k, memo);
-    }
-    return memo;
+    return this.memo(this.metaMemo, k, META_MEMO_TTL_MS, async () => {
+      const engine = await this.getEngine();
+      const res = await engine.getMeta(type, id);
+      return res.data ?? null;
+    });
   }
 
   async getMetaLoose(type: string, id: string): Promise<ParsedMeta | null> {
@@ -243,23 +272,18 @@ export class JellyfinService {
 
   getSubtitles(type: string, videoId: string): Promise<Subtitle[]> {
     const k = `${type}|${videoId}`;
-    let memo = this.subtitleMemo.get(k);
-    if (!memo) {
-      memo = (async () => {
-        try {
-          const engine = await this.getEngine();
-          const res = await engine.getSubtitles(type, videoId);
-          return res.data ?? [];
-        } catch (e) {
-          logger.debug(
-            `subtitles ${type}/${videoId} failed: ${e instanceof Error ? e.message : e}`
-          );
-          return [];
-        }
-      })();
-      this.subtitleMemo.set(k, memo);
-    }
-    return memo;
+    return this.memo(this.subtitleMemo, k, SUBTITLE_MEMO_TTL_MS, async () => {
+      try {
+        const engine = await this.getEngine();
+        const res = await engine.getSubtitles(type, videoId);
+        return res.data ?? [];
+      } catch (e) {
+        logger.debug(
+          `subtitles ${type}/${videoId} failed: ${e instanceof Error ? e.message : e}`
+        );
+        return [];
+      }
+    });
   }
 
   resolveStreams(
@@ -268,49 +292,44 @@ export class JellyfinService {
     withSubtitles = true
   ): Promise<ResolvedStreams> {
     const k = `${type}|${videoId}|${withSubtitles ? 1 : 0}`;
-    let memo = this.streamsMemo.get(k);
-    if (!memo) {
-      memo = (async () => {
-        const engine = await this.getEngine();
-        const [response, subtitles] = await Promise.all([
-          engine.getStreams(videoId, type),
-          withSubtitles
-            ? this.getSubtitles(type, videoId)
-            : Promise.resolve([] as Subtitle[]),
-        ]);
-        const streams = response.data.streams.filter((s) => !!s.url);
-        const ctx = engine.getStreamContext();
-        const formatter = ctx
-          ? createFormatter(ctx.toFormatterContext(streams))
-          : null;
-        const formatted = await Promise.all(
-          streams.map(async (s) => {
-            if (s.addon.formatPassthrough || !formatter) {
-              return {
-                name: s.originalName || s.addon.name,
-                description: s.originalDescription || '',
-              };
-            }
-            try {
-              return await formatter.format(s);
-            } catch {
-              return {
-                name: s.originalName || s.addon.name,
-                description: s.originalDescription || '',
-              };
-            }
-          })
-        );
-        return {
-          streams,
-          formatted,
-          subtitles,
-          errors: response.errors ?? [],
-        };
-      })();
-      this.streamsMemo.set(k, memo);
-    }
-    return memo;
+    return this.memo(this.streamsMemo, k, STREAMS_MEMO_TTL_MS, async () => {
+      const engine = await this.getEngine();
+      const [response, subtitles] = await Promise.all([
+        engine.getStreams(videoId, type),
+        withSubtitles
+          ? this.getSubtitles(type, videoId)
+          : Promise.resolve([] as Subtitle[]),
+      ]);
+      const streams = response.data.streams.filter((s) => !!s.url);
+      const ctx = engine.getStreamContext();
+      const formatter = ctx
+        ? createFormatter(ctx.toFormatterContext(streams))
+        : null;
+      const formatted = await Promise.all(
+        streams.map(async (s) => {
+          if (s.addon.formatPassthrough || !formatter) {
+            return {
+              name: s.originalName || s.addon.name,
+              description: s.originalDescription || '',
+            };
+          }
+          try {
+            return await formatter.format(s);
+          } catch {
+            return {
+              name: s.originalName || s.addon.name,
+              description: s.originalDescription || '',
+            };
+          }
+        })
+      );
+      return {
+        streams,
+        formatted,
+        subtitles,
+        errors: response.errors ?? [],
+      };
+    });
   }
 
   async resolvePlayable(
