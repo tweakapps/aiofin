@@ -9,6 +9,7 @@
 - [x] **Phase 1: Port** (completed 2026-09-08) - Jellyfin layer ported onto v2.34.0, building and tested
 - [x] **Phase 2: Parallel Deploy** (completed 2026-09-08; GHCR push deferred) - Image on GHCR, parallel container on the Dubai VPS with a DB copy
 - [ ] **Phase 3: Profile & Clients** - AioMetadata in the profile, Infuse/SenPlayer checklist with evidence
+- [ ] **Phase 6: Detail Page & Metadata** - Cheap, scrobble-safe item detail; single Jellyfin limiter design; certification, provider ids, crew photos, episode cast, season posters, person pages
 - [ ] **Phase 4: Cut-over** - Production on the ported image with rollback, all profiles
 - [x] **Phase 5: Jellyfin Hardening** (completed 2026-09-08; jf3 live on the parallel container; cast photos + service reuse to be eyeballed by Maged in Infuse) - Fix the Infuse tvOS home-screen 429s, cast photos, per-user service caching, error isolation and contract bugs found in the 2026-09-08 audit
 
@@ -68,4 +69,16 @@
   4. `JellyfinService` is reused across requests for the same profile (one `AIOStreams.initialise` per profile per TTL, not per request)
 **Plans**: 05-01 rate limiting + error isolation; 05-02 per-user service cache; 05-03 cast photos, image relay, media-source stubs; 05-04 contract fixes + jf3 build/deploy
 **Executor**: Sonnet; Fable authored the plans from the audit (`/Users/magededward/claude-cc/aiostreams-jf-audit-2026-09-08.md`) and reviews the diff
+
+### Phase 6: Detail Page & Metadata
+**Goal**: Opening an item in Infuse is instant and never scrobbles; items carry the metadata AioMetadata already provides
+**Depends on**: Phase 5
+**Requirements**: DET-01, DET-02, META-01, META-02
+**Success Criteria**:
+  1. `GET /Items/{movie}` from a non-SenPlayer client returns in < 300 ms with no stream resolution and no upstream subtitles request (log shows zero `resource":"subtitles"` for the request)
+  2. All authenticated Jellyfin routes share one device-keyed limiter except login and PlaybackInfo; no `static rate limit` warnings from Jellyfin clients
+  3. Movie/series items carry `OfficialRating` from `app_extras.certification`, `ProviderIds.Tmdb/Tvdb`, directors/writers with photos; episodes carry the series `People`; seasons carry `app_extras.seasonPosters` art
+  4. `/Persons/{name}` returns a photo when one was ever seen for that name
+**Plans**: 06-01 detail cost + limiter; 06-02 metadata + person pages + jf7 deploy
+**Executor**: Sonnet; Fable authored plans from the 2026-09-08/09 live probes
 

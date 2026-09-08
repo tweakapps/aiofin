@@ -27,6 +27,10 @@
 - [x] **HARD-02**: Cast (`People`) carries photos and roles from AioMetadata `app_extras.cast`; person images served through the image relay
 - [x] **HARD-03**: One failing catalog never 500s a browse response; error bodies are generic; `JellyfinService` cached per profile with TTL
 - [x] **HARD-04**: Paging/filter maths, extras encoding, double-decode, route order and media-source stubs fixed; jf3 image deployed on the parallel container
+- [ ] **DET-01**: Item detail attaches media sources only on request (`Fields=MediaSources`) or for SenPlayer-class clients; detail never triggers subtitle fetches
+- [ ] **DET-02**: One device-keyed limiter for authenticated Jellyfin traffic; login and PlaybackInfo keep their tight limits
+- [ ] **META-01**: OfficialRating, Tmdb/Tvdb ProviderIds, crew photos, episode People, season posters mapped from AioMetadata meta
+- [ ] **META-02**: Person items carry a photo from the persistent image cache
 - [ ] **CUT-01**: Production switched to the ported image after Maged's approval; other profiles get AioMetadata; rollback verified possible
 
 ## Out of Scope
@@ -42,4 +46,5 @@
 | DEP-01..03 | Phase 2 | Complete (DEP-01 deferred: GHCR token scope) |
 | PROF-01, CLI-01..03 | Phase 3 | Pending |
 | HARD-01..04 | Phase 5 | Complete (HARD-02 client confirmation pending) |
+| DET-01..02, META-01..02 | Phase 6 | Pending |
 | CUT-01 | Phase 4 | Pending |
