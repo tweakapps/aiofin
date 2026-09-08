@@ -152,12 +152,14 @@ export class JellyfinService {
     if (opts.search) {
       if (!supports('search'))
         return { items: [], hasMore: false, capped: false };
-      extrasBase.push(`search=${encodeURIComponent(opts.search)}`);
+      // ExtrasParser (utils/extras.ts) splits on & and = and URL-encodes each value itself — pass raw text.
+      extrasBase.push(`search=${opts.search.replace(/[&=]/g, ' ').trim()}`);
     }
     if (opts.genre) {
       if (!supports('genre'))
         return { items: [], hasMore: false, capped: false };
-      extrasBase.push(`genre=${encodeURIComponent(opts.genre)}`);
+      // ExtrasParser (utils/extras.ts) splits on & and = and URL-encodes each value itself — pass raw text.
+      extrasBase.push(`genre=${opts.genre.replace(/[&=]/g, ' ')}`);
     }
     const canSkip = supports('skip');
     const wantEnd = Math.min(opts.startIndex + opts.limit, cap);
