@@ -23,6 +23,10 @@
 - [ ] **CLI-03**: Labels match the profile formatter; evidence table written
 
 ### Cut-over
+- [ ] **HARD-01**: Jellyfin browse routes use their own rate limit (device-aware key) and return `{ Message }` on 429; no tvOS home-screen 429s
+- [ ] **HARD-02**: Cast (`People`) carries photos and roles from AioMetadata `app_extras.cast`; person images served through the image relay
+- [ ] **HARD-03**: One failing catalog never 500s a browse response; error bodies are generic; `JellyfinService` cached per profile with TTL
+- [ ] **HARD-04**: Paging/filter maths, extras encoding, double-decode, route order and media-source stubs fixed; jf3 image deployed on the parallel container
 - [ ] **CUT-01**: Production switched to the ported image after Maged's approval; other profiles get AioMetadata; rollback verified possible
 
 ## Out of Scope
@@ -37,4 +41,5 @@
 | PORT-01..04 | Phase 1 | Complete |
 | DEP-01..03 | Phase 2 | Complete (DEP-01 deferred: GHCR token scope) |
 | PROF-01, CLI-01..03 | Phase 3 | Pending |
+| HARD-01..04 | Phase 5 | Pending |
 | CUT-01 | Phase 4 | Pending |

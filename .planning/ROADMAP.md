@@ -10,6 +10,7 @@
 - [x] **Phase 2: Parallel Deploy** (completed 2026-09-08; GHCR push deferred) - Image on GHCR, parallel container on the Dubai VPS with a DB copy
 - [ ] **Phase 3: Profile & Clients** - AioMetadata in the profile, Infuse/SenPlayer checklist with evidence
 - [ ] **Phase 4: Cut-over** - Production on the ported image with rollback, all profiles
+- [ ] **Phase 5: Jellyfin Hardening** - Fix the Infuse tvOS home-screen 429s, cast photos, per-user service caching, error isolation and contract bugs found in the 2026-09-08 audit
 
 ## Phase Details
 
@@ -55,3 +56,16 @@
   2. Production container on the new image; old tag + DB backup retained; smoke passes
 **Plans**: TBD
 **Executor**: Sonnet with Fable step-by-step review
+
+### Phase 5: Jellyfin Hardening
+**Goal**: The layer survives a tvOS Infuse home screen (24 libraries fanned out in parallel), shows cast with photos, and never turns one bad catalog into a client-wide error
+**Depends on**: Phase 3 (runs before Phase 4 cut-over; jf3 image replaces jf2 on the parallel container)
+**Requirements**: HARD-01, HARD-02, HARD-03, HARD-04
+**Success Criteria**:
+  1. 60 back-to-back requests to `/jellyfin/Users/x/Items/Latest` from one IP produce zero `stremio-catalog rate limit exceeded` warnings and zero 429s
+  2. `People` entries for a movie from AioMetadata carry `PrimaryImageTag` and `Role`, and `/Items/{personId}/Images/Primary` returns the photo (200), not 404
+  3. A throwing `getCatalogPage` on one catalog yields an empty row plus an error log, never a 500 for the whole request; 500 bodies never contain upstream text
+  4. `JellyfinService` is reused across requests for the same profile (one `AIOStreams.initialise` per profile per TTL, not per request)
+**Plans**: 05-01 rate limiting + error isolation; 05-02 per-user service cache; 05-03 cast photos, image relay, media-source stubs; 05-04 contract fixes + jf3 build/deploy
+**Executor**: Sonnet; Fable authored the plans from the audit (`/Users/magededward/claude-cc/aiostreams-jf-audit-2026-09-08.md`) and reviews the diff
+
