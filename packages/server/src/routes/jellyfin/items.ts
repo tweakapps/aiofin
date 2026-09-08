@@ -10,6 +10,7 @@ import {
   groupSeasons,
   JellyfinRepository,
   playstateToUserData,
+  recallImages,
   stripInternal,
   type JellyfinItem,
   type JellyfinItemDescriptor,
@@ -122,8 +123,10 @@ export async function itemFromDescriptor(
     }
     case 'genre':
       return buildGenreItem(ctx.build, d.t, d.c, d.g);
-    case 'person':
-      return buildPersonItem(ctx.build, d.n);
+    case 'person': {
+      const remembered = await recallImages(ctx.uuid, encodeJellyfinId(d));
+      return buildPersonItem(ctx.build, d.n, remembered?.images.Primary);
+    }
     case 'studio':
       return {
         Id: encodeJellyfinId(d),

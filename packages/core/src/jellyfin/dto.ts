@@ -20,7 +20,7 @@ export const TICKS_PER_SECOND = 10_000_000;
 export const TICKS_PER_MINUTE = 600_000_000;
 
 // Bump whenever the shape/content of items changes so clients drop cached metadata.
-export const JELLYFIN_DTO_VERSION = 2;
+export const JELLYFIN_DTO_VERSION = 3;
 
 export type JellyfinItemType =
   | 'Movie'
@@ -168,9 +168,12 @@ export function providerIdsFor(
   }
   const any = meta as Record<string, unknown>;
   if (typeof any.imdb_id === 'string' && !out.Imdb) out.Imdb = any.imdb_id;
+  if (typeof any._imdbId === 'string' && !out.Imdb) out.Imdb = any._imdbId;
   if (any.moviedb_id != null && !out.Tmdb) out.Tmdb = String(any.moviedb_id);
   if (any.tmdb_id != null && !out.Tmdb) out.Tmdb = String(any.tmdb_id);
+  if (any._tmdbId != null && !out.Tmdb) out.Tmdb = String(any._tmdbId);
   if (any.tvdb_id != null && !out.Tvdb) out.Tvdb = String(any.tvdb_id);
+  if (any._tvdbId != null && !out.Tvdb) out.Tvdb = String(any._tvdbId);
   if (any.kitsu_id != null && !out.Kitsu) out.Kitsu = String(any.kitsu_id);
   if (any.mal_id != null && !out.MyAnimeList)
     out.MyAnimeList = String(any.mal_id);
@@ -196,6 +199,27 @@ export function providerIdsFor(
     }
   }
   return out;
+}
+
+export function officialRatingFor(
+  meta: MetaPreview | Meta
+): string | undefined {
+  const appExtras = (meta as Record<string, unknown>).app_extras as
+    | Record<string, unknown>
+    | undefined;
+  const certification =
+    typeof appExtras?.certification === 'string' && appExtras.certification
+      ? appExtras.certification
+      : undefined;
+  if (certification) return certification;
+  const certificationLocal =
+    typeof appExtras?.certificationLocal === 'string' &&
+    appExtras.certificationLocal
+      ? appExtras.certificationLocal
+      : undefined;
+  if (certificationLocal) return certificationLocal;
+  const legacy = (meta as Record<string, unknown>).certification;
+  return typeof legacy === 'string' && legacy ? legacy : undefined;
 }
 
 function externalUrls(providerIds: Record<string, string>) {
@@ -292,8 +316,8 @@ export function peopleFrom(ctx: ItemBuildContext, meta: MetaPreview | Meta) {
     photo?: string
   ): void => {
     if (!name || people.length >= MAX_PEOPLE) return;
-    const key = name.trim().toLowerCase();
-    if (!key || seen.has(key)) return;
+    const key = `${name.trim().toLowerCase()}|${type}`;
+    if (!name.trim() || seen.has(key)) return;
     seen.add(key);
     const personId = encodeJellyfinId({ k: 'person', n: name });
     const entry: JellyfinPerson = {
@@ -309,37 +333,40 @@ export function peopleFrom(ctx: ItemBuildContext, meta: MetaPreview | Meta) {
     people.push(entry);
   };
 
+  // Accepts either plain string names or `{ name, character, photo }`
+  // objects (AioMetadata's app_extras.{cast,directors,writers} shape).
+  const pushExtraEntries = (entries: unknown, type: string): void => {
+    if (!Array.isArray(entries)) return;
+    for (const e of entries) {
+      if (typeof e === 'string') {
+        push(e, type);
+        continue;
+      }
+      if (e && typeof e === 'object') {
+        const rec = e as Record<string, unknown>;
+        const name = typeof rec.name === 'string' ? rec.name : undefined;
+        if (!name) continue;
+        const character =
+          typeof rec.character === 'string' ? rec.character : undefined;
+        const photo = typeof rec.photo === 'string' ? rec.photo : undefined;
+        push(name, type, character, photo);
+      }
+    }
+  };
+
   const appExtras = (meta as Record<string, unknown>).app_extras as
     | Record<string, unknown>
     | undefined;
 
-  const extraCast = Array.isArray(appExtras?.cast) ? appExtras!.cast : [];
-  for (const c of extraCast) {
-    if (typeof c === 'string') {
-      push(c, 'Actor');
-      continue;
-    }
-    if (c && typeof c === 'object') {
-      const rec = c as Record<string, unknown>;
-      const name = typeof rec.name === 'string' ? rec.name : undefined;
-      if (!name) continue;
-      const character =
-        typeof rec.character === 'string' ? rec.character : undefined;
-      const photo = typeof rec.photo === 'string' ? rec.photo : undefined;
-      push(name, 'Actor', character, photo);
-    }
-  }
+  pushExtraEntries(appExtras?.cast, 'Actor');
 
   const castList = Array.isArray(meta.cast)
     ? meta.cast
     : linksByCategory(meta, 'Cast');
   castList.forEach((c) => push(c, 'Actor'));
 
-  const extraDirectors = [
-    ...(Array.isArray(appExtras?.director) ? appExtras!.director : []),
-    ...(Array.isArray(appExtras?.directors) ? appExtras!.directors : []),
-  ].filter((d): d is string => typeof d === 'string');
-  extraDirectors.forEach((d) => push(d, 'Director'));
+  pushExtraEntries(appExtras?.director, 'Director');
+  pushExtraEntries(appExtras?.directors, 'Director');
 
   const directors = Array.isArray(meta.director)
     ? meta.director.filter((d): d is string => typeof d === 'string')
@@ -348,10 +375,8 @@ export function peopleFrom(ctx: ItemBuildContext, meta: MetaPreview | Meta) {
       : linksByCategory(meta, 'Directors');
   directors.forEach((d) => push(d, 'Director'));
 
-  const extraWriters = Array.isArray(appExtras?.writers)
-    ? appExtras!.writers.filter((w): w is string => typeof w === 'string')
-    : [];
-  extraWriters.forEach((w) => push(w, 'Writer'));
+  pushExtraEntries(appExtras?.writers, 'Writer');
+  pushExtraEntries(appExtras?.writer, 'Writer');
 
   linksByCategory(meta, 'Writers').forEach((w) => push(w, 'Writer'));
   return people;
@@ -476,6 +501,11 @@ export function buildPersonItem(
     ServerId: ctx.serverId,
     Type: 'Person',
     IsFolder: false,
+    ...(photo
+      ? {
+          Etag: imageTag(JSON.stringify([JELLYFIN_DTO_VERSION, id, photo])),
+        }
+      : {}),
     ImageTags: photo ? { Primary: imageTag(photo) } : {},
     BackdropImageTags: [],
     PrimaryImageAspectRatio: 0.6667,
@@ -556,9 +586,7 @@ export function buildMetaItem(
     ProductionYear: year,
     PremiereDate: premiere,
     CommunityRating: numberOr(meta.imdbRating),
-    OfficialRating: (meta as Record<string, unknown>).certification as
-      | string
-      | undefined,
+    OfficialRating: officialRatingFor(meta),
     RunTimeTicks: runtimeTicks,
     Genres: genres,
     GenreItems: genres.map((g) => ({
@@ -665,6 +693,38 @@ export function groupSeasons(meta: ParsedMeta): SeasonGroup[] {
   });
 }
 
+export function seasonPosterFor(
+  meta: MetaPreview | Meta,
+  season: number
+): string | undefined {
+  const appExtras = (meta as Record<string, unknown>).app_extras as
+    | Record<string, unknown>
+    | undefined;
+  const seasonPosters = appExtras?.seasonPosters;
+  if (!seasonPosters) return undefined;
+  if (Array.isArray(seasonPosters)) {
+    for (const entry of seasonPosters) {
+      if (!entry || typeof entry !== 'object') continue;
+      const rec = entry as Record<string, unknown>;
+      const s = Number(rec.season);
+      const url =
+        typeof rec.poster === 'string'
+          ? rec.poster
+          : typeof rec.url === 'string'
+            ? rec.url
+            : undefined;
+      if (s === season && url) return url;
+    }
+    return undefined;
+  }
+  if (typeof seasonPosters === 'object') {
+    const rec = seasonPosters as Record<string, unknown>;
+    const url = rec[String(season)];
+    return typeof url === 'string' ? url : undefined;
+  }
+  return undefined;
+}
+
 export function buildSeasonItem(
   ctx: ItemBuildContext,
   meta: ParsedMeta,
@@ -679,7 +739,9 @@ export function buildSeasonItem(
     s: group.season,
   });
   const images: ItemImages = {};
-  if (meta.poster) images.Primary = meta.poster;
+  const seasonPoster = seasonPosterFor(meta, group.season);
+  if (seasonPoster) images.Primary = seasonPoster;
+  else if (meta.poster) images.Primary = meta.poster;
   if (meta.background) images.Backdrop = meta.background;
   rememberImages(ctx.uuid, id, images, true);
 
@@ -830,6 +892,7 @@ export function buildEpisodeItem(
     ProviderIds: {},
     Genres: seriesItem.Genres,
     CommunityRating: seriesItem.CommunityRating,
+    People: seriesItem.People,
     UserData: playstateToUserData(id, playstate, runtimeTicks),
     MediaSources: unaired ? undefined : stubMediaSources(id, title),
     Path: `/${meta.type}/${video.id}`,

@@ -7,7 +7,13 @@ import assert from 'node:assert/strict';
 // manifests when logger.ts is the first module to enter that cycle.
 import '../index.js';
 import type { MetaPreview } from '../db/schemas.js';
-import { peopleFrom, stubMediaSources, type ItemBuildContext } from './dto.js';
+import {
+  officialRatingFor,
+  peopleFrom,
+  providerIdsFor,
+  stubMediaSources,
+  type ItemBuildContext,
+} from './dto.js';
 import { recallImages } from './images.js';
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
@@ -52,6 +58,70 @@ describe('peopleFrom', () => {
     assert.equal(people[0].Name, 'B');
     assert.equal(people[0].Type, 'Actor');
     assert.equal(people[0].PrimaryImageTag, undefined);
+  });
+
+  it('maps app_extras.directors objects to Director entries with photos', async () => {
+    const meta = {
+      id: 'tt3',
+      type: 'movie',
+      name: 'Movie 3',
+      app_extras: {
+        directors: [{ name: 'C', character: null, photo: 'https://p/c.jpg' }],
+      },
+    } as unknown as MetaPreview;
+
+    const people = peopleFrom(ctx, meta);
+    await settle();
+
+    assert.equal(people.length, 1);
+    assert.equal(people[0].Name, 'C');
+    assert.equal(people[0].Type, 'Director');
+    assert.ok(people[0].PrimaryImageTag);
+  });
+
+  it('keeps a person in both cast and directors as two distinct entries', () => {
+    const meta = {
+      id: 'tt4',
+      type: 'movie',
+      name: 'Movie 4',
+      app_extras: {
+        cast: [{ name: 'D', character: 'Lead' }],
+        directors: [{ name: 'D' }],
+      },
+    } as unknown as MetaPreview;
+
+    const people = peopleFrom(ctx, meta);
+
+    assert.equal(people.length, 2);
+    const types = people.map((p) => p.Type).sort();
+    assert.deepEqual(types, ['Actor', 'Director']);
+  });
+});
+
+describe('officialRatingFor', () => {
+  it('prefers app_extras.certification over certificationLocal', () => {
+    const meta = {
+      id: 'tt5',
+      type: 'movie',
+      name: 'Movie 5',
+      app_extras: { certification: 'R', certificationLocal: 'TV-MA' },
+    } as unknown as MetaPreview;
+    assert.equal(officialRatingFor(meta), 'R');
+  });
+});
+
+describe('providerIdsFor', () => {
+  it('maps _tmdbId and _tvdbId to ProviderIds.Tmdb / Tvdb', () => {
+    const meta = {
+      id: 'tt6',
+      type: 'movie',
+      name: 'Movie 6',
+      _tmdbId: 123,
+      _tvdbId: 456,
+    } as unknown as MetaPreview;
+    const ids = providerIdsFor(meta);
+    assert.equal(ids.Tmdb, '123');
+    assert.equal(ids.Tvdb, '456');
   });
 });
 
