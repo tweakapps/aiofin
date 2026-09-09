@@ -29,6 +29,7 @@ const META_MEMO_TTL_MS = 5 * 60_000;
 const SUBTITLE_MEMO_TTL_MS = 5 * 60_000;
 const STREAMS_MEMO_TTL_MS = 60_000;
 const MEMO_MAX_ENTRIES = 2_000;
+const EMPTY_CATALOG_TTL_MS = 10 * 60_000;
 
 interface MemoEntry<T> {
   promise: Promise<T>;
@@ -62,8 +63,31 @@ export class JellyfinService {
   private readonly catalogMemo = new Map<string, MemoEntry<MetaPreview[]>>();
   private readonly subtitleMemo = new Map<string, MemoEntry<Subtitle[]>>();
   private readonly streamsMemo = new Map<string, MemoEntry<ResolvedStreams>>();
+  /**
+   * Catalogs (keyed `type|id`) whose first, unfiltered page returned zero
+   * items on the most recent fetch, with an expiry timestamp. Used by
+   * `viewItems` to hide libraries that are permanently empty (e.g. an
+   * anime-only "Watching" catalog for a user with no watch history).
+   */
+  private readonly emptyCatalogs = new Map<string, number>();
 
   constructor(readonly userData: UserData) {}
+
+  /**
+   * True if `catalog`'s first page was empty on the last fetch and that
+   * result hasn't expired yet. Unknown catalogs (never fetched, or expired)
+   * return false so they still show up until proven empty.
+   */
+  isKnownEmpty(catalog: Catalog): boolean {
+    const key = `${catalog.type}|${catalog.id}`;
+    const expiresAt = this.emptyCatalogs.get(key);
+    if (expiresAt === undefined) return false;
+    if (Date.now() >= expiresAt) {
+      this.emptyCatalogs.delete(key);
+      return false;
+    }
+    return true;
+  }
 
   /**
    * Memoizes `producer()` under `key` in `map` for `ttlMs`. Rejections are
@@ -196,6 +220,14 @@ export class JellyfinService {
       if (!canSkip) hasMore = false;
     }
     const capped = wantEnd < opts.startIndex + opts.limit && offset >= cap;
+    if (!opts.search && !opts.genre && opts.startIndex === 0) {
+      const key = `${catalog.type}|${catalog.id}`;
+      if (out.length === 0) {
+        this.emptyCatalogs.set(key, Date.now() + EMPTY_CATALOG_TTL_MS);
+      } else {
+        this.emptyCatalogs.delete(key);
+      }
+    }
     return {
       items: out,
       hasMore: hasMore && offset >= wantEnd && wantEnd < cap,

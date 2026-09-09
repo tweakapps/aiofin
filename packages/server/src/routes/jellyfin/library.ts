@@ -309,12 +309,23 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     );
   }
   if (parent?.k === 'person' || personIds.length) {
-    const name = parent?.k === 'person' ? parent.n : null;
+    let name: string | null = parent?.k === 'person' ? parent.n : null;
+    if (!name && personIds.length) {
+      const p = await decodeJellyfinId(personIds[0]);
+      if (p?.k === 'person') name = p.n;
+    }
     const previews = name
       ? await ctx.service.search(name, stremioTypesFor(types), limit)
       : [];
     const items = await itemsFromPreviews(ctx, previews);
-    return list(filterByType(items, types), items.length, 0);
+    const seen = new Set<string>();
+    const deduped = items.filter((i) => {
+      const key = `${i.Type}|${i.Id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return list(filterByType(deduped, types), deduped.length, 0);
   }
 
   if (wantsFavorites || wantsPlayed || wantsResumable) {
@@ -370,15 +381,12 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
       );
       hasMore = page.hasMore;
       const items = await itemsFromPreviews(ctx, page.items, parentId);
-      const pageFiltered = applySort(
-        req,
-        applyUserFilters(req, filterByType(items, types))
-      );
+      const pageFiltered = applyUserFilters(req, filterByType(items, types));
       filtered = filtered.concat(pageFiltered);
       rawOffset += page.items.length;
       if (filtered.length >= limit || !page.hasMore) break;
     }
-    filtered = filtered.slice(0, limit);
+    filtered = applySort(req, filtered).slice(0, limit);
     const total = hasMore
       ? startIndex + filtered.length + limit
       : startIndex + filtered.length;
@@ -825,41 +833,77 @@ router.get(
     '/Shows/:itemId/Similar',
   ],
   jf(async (req, res, ctx) => {
-    const d = await decodeJellyfinId(param(req, 'itemId'));
-    const limit = Math.min(Math.max(1, qi(req, 'Limit', 12)), 50);
-    if (!d || (d.k !== 'movie' && d.k !== 'series')) {
-      res.json(list([], 0, 0));
-      return;
-    }
-    const meta = await ctx.service.getMetaLoose(d.t, d.i);
-    const genre = (meta?.genres ?? [])[0];
-    if (!genre) {
-      res.json(list([], 0, 0));
-      return;
-    }
-    const catalogs = await ctx.service.getCatalogs();
-    for (const catalog of catalogs) {
-      if (catalog.type !== d.t) continue;
-      const opts =
-        (catalog.extra ?? []).find((e) => e.name === 'genre')?.options ?? [];
-      if (!opts.includes(genre)) continue;
+    try {
+      const d = await decodeJellyfinId(param(req, 'itemId'));
+      const limit = Math.min(Math.max(1, qi(req, 'Limit', 12)), 50);
+      if (!d || (d.k !== 'movie' && d.k !== 'series')) {
+        res.json(list([], 0, 0));
+        return;
+      }
+      const meta = await ctx.service.getMetaLoose(d.t, d.i);
+      const itemGenres = meta?.genres ?? [];
+      if (!itemGenres.length) {
+        res.json(list([], 0, 0));
+        return;
+      }
+      const catalogs = await ctx.service.getCatalogs();
+      for (const genre of itemGenres) {
+        for (const catalog of catalogs) {
+          if (catalog.type !== d.t) continue;
+          const opts =
+            (catalog.extra ?? []).find((e) => e.name === 'genre')?.options ??
+            [];
+          const matched = opts.some(
+            (o) => !!o && o.toLowerCase().trim() === genre.toLowerCase().trim()
+          );
+          if (!matched) continue;
 
-      const page = await safeCatalogPage(
-        ctx,
-        catalog,
-        { startIndex: 0, limit: limit + 1, genre },
-        'Similar'
+          const page = await safeCatalogPage(
+            ctx,
+            catalog,
+            { startIndex: 0, limit: limit + 1, genre },
+            'Similar'
+          );
+          const items = (
+            await itemsFromPreviews(
+              ctx,
+              page.items.filter((p) => p.id !== d.i)
+            )
+          ).slice(0, limit);
+          if (items.length) {
+            res.json(list(items, items.length, 0));
+            return;
+          }
+        }
+      }
+
+      // No genre-capable catalog matched — fall back to a search on the
+      // item's name.
+      const name = meta?.name;
+      if (name) {
+        const previews = await ctx.service.search(name, [d.t], limit + 1);
+        const items = (
+          await itemsFromPreviews(
+            ctx,
+            previews.filter((p) => p.id !== d.i)
+          )
+        ).slice(0, limit);
+        if (items.length) {
+          res.json(list(items, items.length, 0));
+          return;
+        }
+      }
+      res.json(list([], 0, 0));
+    } catch (error) {
+      logger.error(
+        {
+          err: error instanceof Error ? error.message : String(error),
+          itemId: param(req, 'itemId'),
+        },
+        'Similar failed'
       );
-      const items = (
-        await itemsFromPreviews(
-          ctx,
-          page.items.filter((p) => p.id !== d.i)
-        )
-      ).slice(0, limit);
-      res.json(list(items, items.length, 0));
-      return;
+      res.json(list([], 0, 0));
     }
-    res.json(list([], 0, 0));
   })
 );
 

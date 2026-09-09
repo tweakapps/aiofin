@@ -96,6 +96,39 @@ describe('peopleFrom', () => {
     const types = people.map((p) => p.Type).sort();
     assert.deepEqual(types, ['Actor', 'Director']);
   });
+
+  it('remembers a person photo once per uuid|personId within the memo TTL', async () => {
+    const memoCtx: ItemBuildContext = { uuid: 'u-dto-memo', serverId: 'server' };
+    const meta1 = {
+      id: 'tt-memo-1',
+      type: 'movie',
+      name: 'Memo Movie 1',
+      app_extras: {
+        cast: [{ name: 'Memo Person', character: 'X', photo: 'https://p/first.jpg' }],
+      },
+    } as unknown as MetaPreview;
+
+    const people1 = peopleFrom(memoCtx, meta1);
+    await settle();
+    const remembered1 = await recallImages(memoCtx.uuid, people1[0].Id);
+    assert.equal(remembered1?.images.Primary, 'https://p/first.jpg');
+
+    // Same person, built again for a different item with a different photo
+    // within the memo TTL — the write should be skipped, so the cache still
+    // holds the first photo.
+    const meta2 = {
+      id: 'tt-memo-2',
+      type: 'movie',
+      name: 'Memo Movie 2',
+      app_extras: {
+        cast: [{ name: 'Memo Person', character: 'Y', photo: 'https://p/second.jpg' }],
+      },
+    } as unknown as MetaPreview;
+    const people2 = peopleFrom(memoCtx, meta2);
+    await settle();
+    const remembered2 = await recallImages(memoCtx.uuid, people2[0].Id);
+    assert.equal(remembered2?.images.Primary, 'https://p/first.jpg');
+  });
 });
 
 describe('officialRatingFor', () => {

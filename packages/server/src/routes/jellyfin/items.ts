@@ -79,7 +79,25 @@ export async function viewItems(
   ctx: JellyfinRequestContext
 ): Promise<JellyfinItem[]> {
   const catalogs = await ctx.service.getCatalogs();
-  return catalogs.map((c) => buildViewItem(ctx.build, c));
+  return catalogs
+    .filter((c) => {
+      // Search-only catalogs (Movies/Series/Anime/People Search, Voice
+      // Actor Roles) require a SearchTerm to return anything — they'd be a
+      // permanently empty library row/tile. They remain reachable via
+      // search() and findCatalog() (see below), just not listed as views.
+      const isSearchOnly = (c.extra ?? []).some(
+        (e) => e.name === 'search' && e.isRequired === true
+      );
+      if (isSearchOnly) return false;
+      // Catalogs whose first unfiltered page was empty on the last fetch
+      // are hidden too. This is a rolling 10-minute memo (see
+      // JellyfinService.isKnownEmpty): the very first load after startup
+      // still shows an empty catalog (state unknown), but once the home
+      // screen fan-out fetches it once, the next UserViews call hides it.
+      if (ctx.service.isKnownEmpty(c)) return false;
+      return true;
+    })
+    .map((c) => buildViewItem(ctx.build, c));
 }
 
 export async function findView(

@@ -22,6 +22,31 @@ export const TICKS_PER_MINUTE = 600_000_000;
 // Bump whenever the shape/content of items changes so clients drop cached metadata.
 export const JELLYFIN_DTO_VERSION = 3;
 
+const PERSON_IMAGE_MEMO_TTL_MS = 10 * 60_000;
+const PERSON_IMAGE_MEMO_MAX_ENTRIES = 20_000;
+
+/**
+ * Memoizes `rememberImages` calls for person photos so the same
+ * `uuid|personId` isn't written to the image cache (Redis, when
+ * configured) on every list-item build. Keyed by `uuid|personId`, valued
+ * by expiry timestamp. Capped at PERSON_IMAGE_MEMO_MAX_ENTRIES, dropping
+ * the oldest insertion on overflow (Map iteration order == insertion
+ * order).
+ */
+const rememberedPeople = new Map<string, number>();
+
+function shouldRememberPersonImage(uuid: string, personId: string): boolean {
+  const key = `${uuid}|${personId}`;
+  const expiresAt = rememberedPeople.get(key);
+  if (expiresAt !== undefined && Date.now() < expiresAt) return false;
+  if (rememberedPeople.size >= PERSON_IMAGE_MEMO_MAX_ENTRIES) {
+    const oldest = rememberedPeople.keys().next().value;
+    if (oldest !== undefined) rememberedPeople.delete(oldest);
+  }
+  rememberedPeople.set(key, Date.now() + PERSON_IMAGE_MEMO_TTL_MS);
+  return true;
+}
+
 export type JellyfinItemType =
   | 'Movie'
   | 'Series'
@@ -327,7 +352,9 @@ export function peopleFrom(ctx: ItemBuildContext, meta: MetaPreview | Meta) {
     };
     if (role) entry.Role = role;
     if (photo) {
-      rememberImages(ctx.uuid, personId, { Primary: photo }, true);
+      if (shouldRememberPersonImage(ctx.uuid, personId)) {
+        rememberImages(ctx.uuid, personId, { Primary: photo }, true);
+      }
       entry.PrimaryImageTag = imageTag(photo);
     }
     people.push(entry);
@@ -494,7 +521,9 @@ export function buildPersonItem(
   photo?: string
 ): JellyfinItem {
   const id = encodeJellyfinId({ k: 'person', n: name });
-  if (photo) rememberImages(ctx.uuid, id, { Primary: photo }, true);
+  if (photo && shouldRememberPersonImage(ctx.uuid, id)) {
+    rememberImages(ctx.uuid, id, { Primary: photo }, true);
+  }
   return {
     Id: id,
     Name: name,
