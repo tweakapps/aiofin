@@ -1,25 +1,89 @@
-> ## AIOStreams-JF — Jellyfin compatibility layer on upstream AIOStreams
-> This fork tracks **upstream AIOStreams release tags** on the `release` branch and adds the **Jellyfin compatibility layer** originally published by [qooode/AIOStreams](https://github.com/qooode/AIOStreams), ported onto v2.34.0 (`main` mirrors upstream dev, untouched).
->
-> **Use it:** point any Jellyfin client (Infuse, SenPlayer, Swiftfin, Findroid, Jellyfin web/desktop, Kodi…) at `https://<your-host>/jellyfin`, username = your **profile UUID**, password = your **profile password**. Libraries = the profile's catalogs, metadata/seasons = the profile's meta addons (e.g. AioMetadata), sources = the profile's streams with your formatter labels, direct play (302 redirect), per-profile resume / next-up / favourites. No Jellyfin server, no transcoding.
->
-> **Settings** (env): `ENABLE_JELLYFIN_API` (default true), `JELLYFIN_MAX_CATALOG_ITEMS`, `JELLYFIN_LOOKUP_CONCURRENCY`, `JELLYFIN_RELAY_TIMEOUT`, `JELLYFIN_ALWAYS_ATTACH_SOURCES` (default false), `JELLYFIN_MAX_PLAYBACK_SOURCES` (default 20; SenPlayer-style clients in `JELLYFIN_ATTACH_SOURCES_CLIENTS` always get 50).
->
-> **Security notes:**
-> - API tokens embed the encrypted profile password and cannot be revoked — treat a leaked token like a leaked password.
-> - Alias logins accept any password by design (aliases are share links) — do not create an alias for a profile you expose through the Jellyfin layer unless you intend it to be open to anyone with the alias name.
-> - Jellyfin rate limit is `JELLYFIN_WINDOW` / `JELLYFIN_MAX` (default 5 s / 2000 requests).
-> - Do not enable AioMetadata's subtitles resource for profiles used via the Jellyfin layer — its Trakt/Simkl check-in fires from the subtitle request, not from actual playback.
->
-> **Build:** run `node scripts/generateMetadata.cjs` before `docker build` so the version shows correctly. **Update:** merge the new upstream tag into `release` (only the hook files can conflict), rebuild. The exact port is documented in `.planning/phases/01-port/jellyfin-layer.patch`.
->
-> **Docker image:** `ghcr.io/tweakapps/aiostreams-jf:<tag>` — pinned tags match the [GitHub Releases](https://github.com/tweakapps/aiostreams-jf-update/releases) (e.g. `jf-v2.34.0-2`, recommended); `release` is the moving edge built by `.github/workflows/jf-docker.yml` on every push. Deploy/upgrade: change the tag, then `docker compose pull && docker compose up -d`. Full fork history: [CHANGELOG-JF.md](CHANGELOG-JF.md).
->
-> **Note:** `JELLYFIN_ALWAYS_ATTACH_SOURCES` now defaults to **false**; SenPlayer-style clients are matched by name via `JELLYFIN_ATTACH_SOURCES_CLIENTS` (default `SenPlayer`).
->
-> **Support the fork:** if the Jellyfin layer is useful to you, you can [sponsor tweakapps on GitHub](https://github.com/sponsors/tweakapps). Upstream AIOStreams is by [Viren070](https://github.com/sponsors/Viren070) — please support them too.
->
-> Upstream README follows.
+<h1 align="center">AIOStreams‑JF</h1>
+
+<p align="center"><strong>Your AIOStreams profile, served as a Jellyfin server.</strong></p>
+
+<p align="center">
+  <a href="https://github.com/tweakapps/aiostreams-jf-update/releases"><img src="https://img.shields.io/github/v/release/tweakapps/aiostreams-jf-update?filter=jf-v*&label=release&style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/tweakapps/aiostreams-jf-update/pkgs/container/aiostreams-jf"><img src="https://img.shields.io/badge/ghcr.io-aiostreams--jf-blue?style=flat-square&logo=docker" alt="Docker image"></a>
+  <a href="https://github.com/sponsors/tweakapps"><img src="https://img.shields.io/badge/sponsor-tweakapps-ea4aaa?style=flat-square&logo=githubsponsors" alt="Sponsor"></a>
+</p>
+
+AIOStreams is brilliant inside Stremio. Outside it, though, you're stuck: Infuse, SenPlayer, Swiftfin and friends don't speak Stremio. This fork adds a Jellyfin‑compatible API on top of the current upstream AIOStreams, so those apps can log in and see your profile as if it were a Jellyfin server.
+
+Your catalogs become libraries. Your metadata addon fills in posters, cast and seasons. Your stream addons provide the sources, and the player plays them directly. Watched state, resume and favourites are stored per profile. There is no Jellyfin server behind it and nothing is transcoded.
+
+The Jellyfin layer was first written by [qooode](https://github.com/qooode/AIOStreams) against a development snapshot. This fork ports it onto upstream release tags and keeps it there, so you get every upstream AIOStreams release with the layer included.
+
+## What you get
+
+- **A real library view in your player.** Every catalog in the profile is a library; search catalogs work from the app's search box.
+- **Proper metadata.** Posters, backdrops, logos, cast with photos and roles, directors and writers, age rating, TMDB and TVDB ids, season posters, episode thumbnails. All of it comes from the metadata addon in your profile, AioMetadata being the one this was built against.
+- **Direct play from your sources.** The player gets your stream list with your own formatter labels and plays straight from the debrid or usenet link.
+- **Per‑profile progress.** Resume, next up, watched and favourites live with the profile, so each family member has their own.
+- **Built for TV apps.** The home screen of Infuse on Apple TV fires dozens of requests at once; the layer is tuned for that instead of Stremio's one‑row‑at‑a‑time pattern.
+
+Tested with Infuse (tvOS, iOS, macOS) and SenPlayer. Swiftfin, Findroid, Streamyfin, the Jellyfin web and desktop clients and Kodi use the same API and should work; reports welcome.
+
+## Run it
+
+Use the image in place of `ghcr.io/viren070/aiostreams` and keep your existing environment. Pin a release tag rather than `release` if you want predictable upgrades.
+
+```yaml
+services:
+  aiostreams:
+    image: ghcr.io/tweakapps/aiostreams-jf:jf-v2.34.0-9   # see Releases for the latest
+    environment:
+      - ENABLE_JELLYFIN_API=true
+      # ...your normal AIOStreams settings
+```
+
+Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. Every tag on the [Releases](https://github.com/tweakapps/aiostreams-jf-update/releases) page has a matching image; `release` tracks the branch. Upgrade with `docker compose pull && docker compose up -d`.
+
+## Connect a player
+
+1. Create or open a profile in AIOStreams and add a metadata addon to it (AioMetadata works well). Without one the libraries will be empty.
+2. In your player, add a Jellyfin server at `https://your-host/jellyfin`.
+3. Username is the profile **UUID**, password is the profile **password**.
+
+That's it. Libraries, search, playback and progress all follow the profile.
+
+## Settings
+
+All optional. Defaults suit a household server.
+
+| Variable | Default | What it does |
+|---|---|---|
+| `ENABLE_JELLYFIN_API` | `true` | Turns the Jellyfin API on or off. |
+| `JELLYFIN_WINDOW` / `JELLYFIN_MAX` | `5` / `2000` | Rate limit for Jellyfin traffic, per device: requests per window in seconds. |
+| `JELLYFIN_ATTACH_SOURCES_CLIENTS` | `SenPlayer` | Players that want the full source list on the item page (for a version picker) rather than at play time. Comma‑separated, matched by client name. |
+| `JELLYFIN_ALWAYS_ATTACH_SOURCES` | `false` | Do that for every client. Slower item pages; only if your player needs it. |
+| `JELLYFIN_MAX_PLAYBACK_SOURCES` | `20` | How many sources a player is offered at play time. Clients in the list above always get 50. |
+| `JELLYFIN_MAX_CATALOG_ITEMS` | `0` (off) | Cap on items per library for apps that crawl everything. |
+| `JELLYFIN_LOOKUP_CONCURRENCY` | `8` | How many items one list request resolves at once. |
+| `JELLYFIN_RELAY_TIMEOUT` | `15000` | Milliseconds to wait for an upstream image or subtitle to start responding. |
+
+## Good to know
+
+- **Tokens are secrets.** The token a player stores after login embeds your encrypted profile password and can't be revoked. Treat it like the password.
+- **Aliases are open.** An alias login accepts any password, because aliases are share links. Don't alias a profile you expose through this layer unless you mean it to be open.
+- **Metadata addon check‑ins.** Some metadata addons report "watching" to Trakt or Simkl when subtitles are requested. Leave that addon's subtitles resource off in profiles you use through this layer, or you'll get check‑ins that don't match real playback.
+- **Players do their own subtitles.** Infuse and SenPlayer fetch subtitles themselves, and embedded tracks play as usual. Add a subtitle addon to the profile if you want more.
+
+## Releases and changes
+
+One release per update, each with its own notes: [Releases](https://github.com/tweakapps/aiostreams-jf-update/releases). The same history in one file: [CHANGELOG‑JF.md](CHANGELOG-JF.md).
+
+Branches: `release` is the default and what images are built from, upstream's latest tag plus the layer. `main` mirrors upstream development and is left untouched, so new upstream versions merge cleanly.
+
+## Thanks
+
+AIOStreams is [Viren070](https://github.com/Viren070/AIOStreams)'s work and this fork exists because of it; if you sponsor anyone, [sponsor them](https://github.com/sponsors/Viren070). The Jellyfin layer started with [qooode](https://github.com/qooode/AIOStreams). If the fork itself saves you time, you can [sponsor tweakapps](https://github.com/sponsors/tweakapps).
+
+---
+
+<details>
+<summary><strong>Upstream AIOStreams README</strong> (click to expand)</summary>
+
 
 <p align="center">
     <picture>
@@ -261,3 +325,5 @@ This project wouldn't be possible without the foundational work of many others i
 - [sleeyax/stremio-easynews-addon](https://github.com/sleeyax/stremio-easynews-addon) for the project's initial structure
 - Custom formatter system inspired by and adapted from [diced/zipline](https://github.com/diced/zipline)
 - Stream Expression Language powered by [silentmatt/expr-eval](https://github.com/silentmatt/expr-eval)
+
+</details>
