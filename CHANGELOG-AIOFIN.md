@@ -2,6 +2,10 @@
 
 AioFin (formerly AIOStreams-JF): the Jellyfin compatibility layer on top of upstream AIOStreams. Upstream's own changelog is in `CHANGELOG.md`. Releases are tagged `jf-v<upstream version>-<n>`; the matching Docker image is `ghcr.io/tweakapps/aiofin:<tag>` (multi-arch: amd64, arm64); `ghcr.io/tweakapps/aiofin:release` tracks the `release` branch. The old image name `ghcr.io/tweakapps/aiostreams-jf` is still published for now. New releases are tagged `aiofin-v<upstream>-<n>`; the first nine kept their `jf-v2.34.0-<n>` tags.
 
+## aiofin-v2.34.0-12 — 2026-09-09
+
+- Item ETags bumped (DTO v4) so clients drop cached item documents and pick up MediaSourceCount; without this, Infuse kept answering from cache (304) and never saw the field.
+
 ## aiofin-v2.34.0-11 — 2026-09-09
 
 - Infuse's "Direct Mode" now shows the version-picker arrow on movies and episodes with multiple sources (it reads `MediaSourceCount`, not the length of `MediaSources`, and this layer never set it).

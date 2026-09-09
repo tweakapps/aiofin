@@ -20,7 +20,7 @@ export const TICKS_PER_SECOND = 10_000_000;
 export const TICKS_PER_MINUTE = 600_000_000;
 
 // Bump whenever the shape/content of items changes so clients drop cached metadata.
-export const JELLYFIN_DTO_VERSION = 3;
+export const JELLYFIN_DTO_VERSION = 4;
 
 const PERSON_IMAGE_MEMO_TTL_MS = 10 * 60_000;
 const PERSON_IMAGE_MEMO_MAX_ENTRIES = 20_000;
