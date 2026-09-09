@@ -158,9 +158,9 @@ describe('providerIdsFor', () => {
 });
 
 describe('stubMediaSources', () => {
-  it('returns exactly one entry', () => {
+  it('returns exactly two entries (Infuse needs 2+ to offer a version picker)', () => {
     const sources = stubMediaSources('item-1', 'Movie');
-    assert.equal(sources.length, 1);
+    assert.equal(sources.length, 2);
     assert.equal(sources[0].Id, 'item-1');
   });
 });
@@ -169,7 +169,7 @@ describe('MediaSourceCount', () => {
   it('is not set on a stub-sourced list item (Infuse Direct must not show a version arrow for it)', () => {
     const meta = { id: 'tt1', type: 'movie', name: 'Movie' } as unknown as MetaPreview;
     const item = buildMetaItem(ctx, meta);
-    assert.equal(item.MediaSources?.length, 1);
+    assert.equal(item.MediaSources?.length, 2);
     assert.equal(item.MediaSourceCount, undefined);
   });
 });

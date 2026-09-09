@@ -454,6 +454,20 @@ export function stubMediaSources(
       MediaStreams: [],
       Formats: [],
     },
+    // Two placeholders, not one: Infuse decides whether a title has versions from the list document, and a single source means no picker (regressed in 8bd18dec).
+    {
+      Id: streamIdToMediaSourceId(`${itemId}-stub2`),
+      ETag: itemId,
+      Name: `${name} (2)`,
+      Path: `/aiostreams/${itemId}`,
+      Protocol: 'File',
+      Type: 'Default',
+      SupportsDirectPlay: true,
+      SupportsDirectStream: true,
+      SupportsTranscoding: false,
+      MediaStreams: [],
+      Formats: [],
+    },
   ];
 }
 
