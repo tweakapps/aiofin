@@ -211,6 +211,16 @@ export const apiSchema = {
     requiresRestart: false,
     secret: false,
   },
+  jellyfinMaxPlaybackSources: {
+    schema: z.number().int().min(1).max(200),
+    default: 20,
+    label: 'Jellyfin: max PlaybackInfo sources',
+    description:
+      'Upper bound on how many MediaSources a single PlaybackInfo response includes. Infuse only shows the version picker briefly and picks the first source by default, so a large cap mostly adds payload size. Clients listed in `jellyfinAttachSourcesClients` (e.g. SenPlayer) get the higher fixed cap of 50 instead, since they rely on the full list to build their picker.',
+    env: 'JELLYFIN_MAX_PLAYBACK_SOURCES',
+    requiresRestart: false,
+    secret: false,
+  },
   provideStreamData: {
     schema: provideStreamData,
     default: null,

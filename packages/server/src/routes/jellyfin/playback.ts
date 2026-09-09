@@ -17,7 +17,7 @@ import {
   type PlayableStreamRecord,
   type RememberedImages,
 } from '@aiostreams/core';
-import { jf, qs, type JellyfinRequestContext, param } from './context.js';
+import { jf, qi, qs, type JellyfinRequestContext, param } from './context.js';
 import { isRelayLoop } from './relay-target.js';
 
 const logger = createLogger('jellyfin');
@@ -99,6 +99,13 @@ async function runtimeTicksFor(
   return parseRuntimeToTicks(meta?.runtime);
 }
 
+function clientMatches(clientName: string, clients: readonly string[]) {
+  const lower = clientName.toLowerCase();
+  return clients.some((c) => c && lower.includes(c.toLowerCase()));
+}
+
+const SOURCES_ATTACH_CLIENT_CAP = 50;
+
 async function playbackInfo(
   req: Request,
   res: Response,
@@ -130,7 +137,17 @@ async function playbackInfo(
     }
   );
   const normalizedItemId = itemId.replace(/-/g, '').toLowerCase();
-  let out = sources.slice(0, 50);
+  // SenPlayer-style clients (jellyfinAttachSourcesClients) rely on the full
+  // source list to build their version picker; everyone else gets the
+  // configurable cap (default 20) since Infuse only shows the picker
+  // briefly and picks the first source by default (D3).
+  const maxSources = clientMatches(
+    ctx.client.name,
+    appConfig.api.jellyfinAttachSourcesClients
+  )
+    ? SOURCES_ATTACH_CLIENT_CAP
+    : appConfig.api.jellyfinMaxPlaybackSources;
+  let out = sources.slice(0, maxSources);
   const specific =
     typeof requestedSource === 'string' &&
     requestedSource &&
@@ -141,6 +158,12 @@ async function playbackInfo(
   }
   if (!specific && out.length) {
     out[0] = { ...out[0], Id: normalizedItemId, ETag: normalizedItemId };
+  }
+  if (!specific && out.length > 5) {
+    // Beyond the first 5 sources, drop MediaStreams to cut payload size.
+    // Infuse reads streams from the selected source at play time via the
+    // stream itself (resolveStreamTarget does not read MediaSources).
+    out = out.map((s, i) => (i < 5 ? s : { ...s, MediaStreams: [] }));
   }
   if (!out.length) {
     const reason = errors
@@ -370,6 +393,90 @@ interface ResolvedImage {
   public: boolean;
 }
 
+// Hosts that serve artwork over plain public URLs with no auth/secret in
+// the path, so we can redirect Jellyfin clients straight to them instead
+// of relaying the bytes through this server (D2).
+const PUBLIC_IMAGE_HOSTS = [
+  'image.tmdb.org',
+  'artworks.thetvdb.com',
+  'images.metahub.space',
+  'm.media-amazon.com',
+  'assets.fanart.tv',
+];
+
+function isPublicImageHost(url: string): boolean {
+  try {
+    const host = new URL(url).hostname.toLowerCase();
+    return PUBLIC_IMAGE_HOSTS.some((h) => host.endsWith(h));
+  } catch {
+    return false;
+  }
+}
+
+// TMDB only accepts these exact size buckets per image kind.
+const TMDB_POSTER_SIZES = [
+  { name: 'w185', px: 185 },
+  { name: 'w342', px: 342 },
+  { name: 'w500', px: 500 },
+  { name: 'w780', px: 780 },
+  { name: 'original', px: Infinity },
+];
+const TMDB_BACKDROP_SIZES = [
+  { name: 'w300', px: 300 },
+  { name: 'w780', px: 780 },
+  { name: 'w1280', px: 1280 },
+  { name: 'original', px: Infinity },
+];
+const TMDB_PROFILE_SIZES = [
+  { name: 'w185', px: 185 },
+  { name: 'h632', px: 632 },
+  { name: 'original', px: Infinity },
+];
+
+function requestedImageWidth(req: Request): number | undefined {
+  for (const key of ['maxWidth', 'fillWidth', 'width']) {
+    const n = qi(req, key, NaN);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return undefined;
+}
+
+// Rewrite a TMDB `/t/p/<size>/...` URL to the smallest bucket that is >=
+// the requested width (or a sane default when no size was requested).
+// Non-TMDB hosts (TVDB has no size variants) are returned unchanged.
+function sizeImageUrl(
+  url: string,
+  want: string,
+  req: Request,
+  isPerson: boolean
+): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url;
+  }
+  if (!u.hostname.toLowerCase().endsWith('image.tmdb.org')) return url;
+  const match = u.pathname.match(/^(\/t\/p\/)([^/]+)(\/.+)$/);
+  if (!match) return url;
+  const isBackdrop = want === 'backdrop' || want === 'art' || want === 'banner';
+  const sizes = isPerson
+    ? TMDB_PROFILE_SIZES
+    : isBackdrop
+      ? TMDB_BACKDROP_SIZES
+      : TMDB_POSTER_SIZES;
+  const requestedWidth = requestedImageWidth(req);
+  const target =
+    requestedWidth != null
+      ? (sizes.find((s) => s.px >= requestedWidth) ?? sizes[sizes.length - 1])
+      : (sizes.find(
+          (s) =>
+            s.name === (isPerson ? 'w185' : isBackdrop ? 'w1280' : 'w500')
+        ) ?? sizes[sizes.length - 1]);
+  u.pathname = `${match[1]}${target.name}${match[3]}`;
+  return u.toString();
+}
+
 const ARTWORK_KINDS = new Set([
   'movie',
   'series',
@@ -419,6 +526,7 @@ async function imageUrlFor(
   getCtx: () => Promise<JellyfinRequestContext | null>,
   itemId: string,
   type: string,
+  req: Request,
   opts: { rebuild?: boolean } = {}
 ): Promise<ResolvedImage | null> {
   const id = itemId.replace(/-/g, '').toLowerCase();
@@ -440,16 +548,24 @@ async function imageUrlFor(
         return imgs.Primary ?? null;
     }
   };
+  // Decoded up front (cheap: most ids unpack synchronously) so both the
+  // cache-hit and cache-miss paths know whether this is a person, which
+  // TMDB image sizing needs (profile sizes differ from poster/backdrop).
+  const d = await decodeJellyfinId(id).catch(() => null);
+  const isPerson = d?.k === 'person';
+  const resolve = (url: string): ResolvedImage => {
+    if (!isPublicImageHost(url)) return { url, public: false };
+    return { url: sizeImageUrl(url, want, req, isPerson), public: true };
+  };
   const remembered = uuid ? await recallImages(uuid, id) : undefined;
   const cached = pick(remembered?.images);
-  if (cached) return { url: cached, public: false };
-  const d = await decodeJellyfinId(id);
+  if (cached) return resolve(cached);
   if (!d) return null;
   if (!ARTWORK_KINDS.has(d.k)) return null;
   if (d.k === 'person') return null;
   if (opts.rebuild !== false && !remembered?.complete) {
     const rebuilt = pick((await rebuildImages(uuid, getCtx, d, id))?.images);
-    if (rebuilt) return { url: rebuilt, public: false };
+    if (rebuilt) return resolve(rebuilt);
   }
   const fallback = metahubImageUrl(d, want);
   return fallback ? { url: fallback, public: true } : null;
@@ -481,10 +597,16 @@ router.get(
       req.uuid,
       lazyCtx(req),
       itemIdParam,
-      typeParam
+      typeParam,
+      req
     ).catch(() => null);
     if (!result) {
       res.status(404).end();
+      return;
+    }
+    if (result.public) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.redirect(302, result.url);
       return;
     }
     try {
@@ -495,9 +617,7 @@ router.get(
       if (typeof ims === 'string') headers['if-modified-since'] = ims;
       const upstream = await relay(result.url, headers);
       if (upstream.status >= 400) {
-        const fallbackUrl = result.public
-          ? null
-          : await fallbackImageUrl(itemIdParam, typeParam);
+        const fallbackUrl = await fallbackImageUrl(itemIdParam, typeParam);
         if (fallbackUrl) {
           res.redirect(302, fallbackUrl);
         } else {
@@ -536,8 +656,7 @@ router.get(
         'image relay failed'
       );
       if (res.headersSent) return;
-      if (result.public) res.redirect(302, result.url);
-      else res.status(404).end();
+      res.status(404).end();
     }
   }
 );
@@ -549,10 +668,16 @@ router.head(
       lazyCtx(req),
       param(req, 'itemId'),
       param(req, 'type'),
+      req,
       { rebuild: false }
     ).catch(() => null);
     if (!result) {
       res.status(404).end();
+      return;
+    }
+    if (result.public) {
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.redirect(302, result.url);
       return;
     }
     res.status(200).end();

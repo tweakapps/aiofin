@@ -3,7 +3,13 @@
 >
 > **Use it:** point any Jellyfin client (Infuse, SenPlayer, Swiftfin, Findroid, Jellyfin web/desktop, Kodi…) at `https://<your-host>/jellyfin`, username = your **profile UUID**, password = your **profile password**. Libraries = the profile's catalogs, metadata/seasons = the profile's meta addons (e.g. AioMetadata), sources = the profile's streams with your formatter labels, direct play (302 redirect), per-profile resume / next-up / favourites. No Jellyfin server, no transcoding.
 >
-> **Settings** (env): `ENABLE_JELLYFIN_API` (default true), `JELLYFIN_MAX_CATALOG_ITEMS`, `JELLYFIN_LOOKUP_CONCURRENCY`, `JELLYFIN_RELAY_TIMEOUT`, `JELLYFIN_ALWAYS_ATTACH_SOURCES` (default true; needed for clients like SenPlayer to show a version picker).
+> **Settings** (env): `ENABLE_JELLYFIN_API` (default true), `JELLYFIN_MAX_CATALOG_ITEMS`, `JELLYFIN_LOOKUP_CONCURRENCY`, `JELLYFIN_RELAY_TIMEOUT`, `JELLYFIN_ALWAYS_ATTACH_SOURCES` (default true; needed for clients like SenPlayer to show a version picker), `JELLYFIN_MAX_PLAYBACK_SOURCES` (default 20; SenPlayer-style clients in `JELLYFIN_ATTACH_SOURCES_CLIENTS` always get 50).
+>
+> **Security notes:**
+> - API tokens embed the encrypted profile password and cannot be revoked — treat a leaked token like a leaked password.
+> - Alias logins accept any password by design (aliases are share links) — do not create an alias for a profile you expose through the Jellyfin layer unless you intend it to be open to anyone with the alias name.
+> - Jellyfin rate limit is `JELLYFIN_WINDOW` / `JELLYFIN_MAX` (default 5 s / 2000 requests).
+> - Do not enable AioMetadata's subtitles resource for profiles used via the Jellyfin layer — its Trakt/Simkl check-in fires from the subtitle request, not from actual playback.
 >
 > **Build:** run `node scripts/generateMetadata.cjs` before `docker build` so the version shows correctly. **Update:** merge the new upstream tag into `release` (only the hook files can conflict), rebuild. The exact port is documented in `.planning/phases/01-port/jellyfin-layer.patch`.
 >

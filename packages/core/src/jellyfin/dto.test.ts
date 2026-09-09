@@ -1,11 +1,9 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-// Mirror the real server boot order (packages/core/src/index.ts barrel,
-// which packages/server/src/app.ts pulls in first) so the pre-existing
-// config <-> tasks <-> logger circular dependency resolves the same way
-// it does in production, instead of hitting the module TDZ that only
-// manifests when logger.ts is the first module to enter that cycle.
-import '../index.js';
+// The core barrel (packages/core/src/index.ts) is imported once by
+// packages/core/test/setup.ts before any test file runs, resolving the
+// pre-existing config <-> tasks <-> logger circular dependency the same
+// way production does (packages/server/src/app.ts pulls it in first).
 import type { MetaPreview } from '../db/schemas.js';
 import {
   officialRatingFor,
