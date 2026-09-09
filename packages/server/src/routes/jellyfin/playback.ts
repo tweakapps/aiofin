@@ -182,6 +182,7 @@ async function playbackInfo(
   }
   res.json({
     MediaSources: out,
+    AlternateMediaSources: out,
     PlaySessionId: `${ctx.userId}-${Date.now().toString(36)}`,
   });
 }

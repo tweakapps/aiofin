@@ -699,6 +699,8 @@ async function sendItem(
         capped[0] = { ...capped[0], Id: item.Id, ETag: item.Id };
         item.MediaSources = capped;
         item.MediaSourceCount = capped.length;
+        item.AlternateMediaSources = capped;
+        item.EnableMediaSourceDisplay = true;
         item.MediaStreams = capped[0].MediaStreams;
         item.Container = capped[0].Container;
       } else {

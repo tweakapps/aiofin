@@ -79,6 +79,8 @@ export type JellyfinItem = {
   IsFolder: boolean;
   MediaSources?: JellyfinMediaSource[];
   MediaSourceCount?: number;
+  EnableMediaSourceDisplay?: boolean;
+  AlternateMediaSources?: JellyfinMediaSource[];
   [key: string]: unknown;
 };
 
@@ -596,6 +598,7 @@ export function buildMetaItem(
     Type: itemType,
     IsFolder: itemType === 'Series',
     MediaType: itemType === 'Movie' ? 'Video' : undefined,
+    EnableMediaSourceDisplay: itemType === 'Movie' ? true : undefined,
     Etag: imageTag(
       JSON.stringify([
         JELLYFIN_DTO_VERSION,
@@ -888,6 +891,7 @@ export function buildEpisodeItem(
     ),
     IsFolder: false,
     MediaType: 'Video',
+    EnableMediaSourceDisplay: true,
     VideoType: 'VideoFile',
     LocationType: unaired ? 'Virtual' : 'FileSystem',
     PlayAccess: 'Full',

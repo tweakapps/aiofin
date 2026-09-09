@@ -5,6 +5,7 @@ AioFin (formerly AIOStreams-JF): the Jellyfin compatibility layer on top of upst
 ## aiofin-v2.34.0-12 — 2026-09-09
 
 - Item ETags bumped (DTO v4) so clients drop cached item documents and pick up MediaSourceCount; without this, Infuse kept answering from cache (304) and never saw the field.
+- Movies and episodes now carry EnableMediaSourceDisplay and AlternateMediaSources alongside MediaSources, the fields Infuse's Direct Mode reads for its version list.
 
 ## aiofin-v2.34.0-11 — 2026-09-09
 

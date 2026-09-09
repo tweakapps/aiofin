@@ -173,3 +173,17 @@ describe('MediaSourceCount', () => {
     assert.equal(item.MediaSourceCount, undefined);
   });
 });
+
+describe('EnableMediaSourceDisplay', () => {
+  it('is true on a movie item (Infuse Direct reads this to show its version list)', () => {
+    const meta = { id: 'tt1', type: 'movie', name: 'Movie' } as unknown as MetaPreview;
+    const item = buildMetaItem(ctx, meta);
+    assert.equal(item.EnableMediaSourceDisplay, true);
+  });
+
+  it('is not set on a series item', () => {
+    const meta = { id: 'tt2', type: 'series', name: 'Series' } as unknown as MetaPreview;
+    const item = buildMetaItem(ctx, meta);
+    assert.equal(item.EnableMediaSourceDisplay, undefined);
+  });
+});
