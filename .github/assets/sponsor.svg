@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="56" viewBox="0 0 300 56" role="img" aria-label="Sponsor tweakapps on GitHub">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1c2128"/>
+      <stop offset="1" stop-color="#0d1117"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="298" height="54" rx="14" fill="url(#g)" stroke="#30363d" stroke-width="1.5"/>
+  <path d="M40 38.5 C33 32.8 26 27.9 26 21.6 C26 17.3 29.3 14 33.5 14 C36 14 38.4 15.3 40 17.4 C41.6 15.3 44 14 46.5 14 C50.7 14 54 17.3 54 21.6 C54 27.9 47 32.8 40 38.5 Z" fill="#db61a2"/>
+  <text x="70" y="24" font-family="-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#e6edf3">Sponsor on GitHub</text>
+  <text x="70" y="42" font-family="-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif" font-size="12" fill="#9da7b3">Built by one person · one-off or monthly</text>
+</svg>

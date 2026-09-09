@@ -5,7 +5,7 @@
 <p align="center">
   <a href="https://github.com/tweakapps/aiostreams-jf-update/releases"><img src="https://img.shields.io/github/v/release/tweakapps/aiostreams-jf-update?filter=jf-v*&label=release&style=flat-square" alt="Latest release"></a>
   <a href="https://github.com/tweakapps/aiostreams-jf-update/pkgs/container/aiostreams-jf"><img src="https://img.shields.io/badge/ghcr.io-aiostreams--jf-blue?style=flat-square&logo=docker" alt="Docker image"></a>
-  <a href="https://github.com/sponsors/tweakapps"><img src="https://img.shields.io/badge/sponsor-tweakapps-ea4aaa?style=flat-square&logo=githubsponsors" alt="Sponsor"></a>
+  <a href="https://github.com/sponsors/tweakapps"><img src="https://img.shields.io/badge/%E2%99%A5_sponsor-tweakapps-db61a2?style=flat-square" alt="Sponsor"></a>
 </p>
 
 AIOStreams is brilliant inside Stremio. Outside it, though, you're stuck: Infuse, SenPlayer, Swiftfin and friends don't speak Stremio. This fork adds a Jellyfin‑compatible API on top of the current upstream AIOStreams, so those apps can log in and see your profile as if it were a Jellyfin server.
@@ -75,9 +75,15 @@ One release per update, each with its own notes: [Releases](https://github.com/t
 
 Branches: `release` is the default and what images are built from, upstream's latest tag plus the layer. `main` mirrors upstream development and is left untouched, so new upstream versions merge cleanly.
 
-## Thanks
+## Support
 
-AIOStreams is [Viren070](https://github.com/Viren070/AIOStreams)'s work and this fork exists because of it; if you sponsor anyone, [sponsor them](https://github.com/sponsors/Viren070). The Jellyfin layer started with [qooode](https://github.com/qooode/AIOStreams). If the fork itself saves you time, you can [sponsor tweakapps](https://github.com/sponsors/tweakapps).
+<p align="center">
+  <a href="https://github.com/sponsors/tweakapps"><img src=".github/assets/sponsor.svg" width="300" alt="Sponsor tweakapps on GitHub"></a>
+  &nbsp;&nbsp;
+  <a href="https://github.com/sponsors/Viren070"><img src=".github/assets/sponsor-upstream.svg" width="300" alt="Sponsor Viren070, author of AIOStreams"></a>
+</p>
+
+<p align="center">Free to use, no fees taken. If the Jellyfin layer saves you time, chip in on the left. AIOStreams itself is <a href="https://github.com/Viren070/AIOStreams">Viren070</a>'s work; if you only pick one, pick the right. The layer started with <a href="https://github.com/qooode/AIOStreams">qooode</a>.</p>
 
 ---
 

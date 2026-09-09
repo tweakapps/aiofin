@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="56" viewBox="0 0 300 56" role="img" aria-label="Sponsor Viren070, author of AIOStreams">
+  <rect x="1" y="1" width="298" height="54" rx="14" fill="#0d1117" stroke="#30363d" stroke-width="1.5"/>
+  <path d="M40 38.5 C33 32.8 26 27.9 26 21.6 C26 17.3 29.3 14 33.5 14 C36 14 38.4 15.3 40 17.4 C41.6 15.3 44 14 46.5 14 C50.7 14 54 17.3 54 21.6 C54 27.9 47 32.8 40 38.5 Z" fill="#8b949e"/>
+  <text x="70" y="24" font-family="-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif" font-size="15" font-weight="700" fill="#e6edf3">Sponsor Viren070</text>
+  <text x="70" y="42" font-family="-apple-system,Segoe UI,Inter,Helvetica,Arial,sans-serif" font-size="12" fill="#9da7b3">Author of AIOStreams · the reason this exists</text>
+</svg>
