@@ -10,6 +10,7 @@
 - [x] **Phase 2: Parallel Deploy** (completed 2026-09-08; GHCR push deferred) - Image on GHCR, parallel container on the Dubai VPS with a DB copy
 - [ ] **Phase 3: Profile & Clients** - AioMetadata in the profile, Infuse/SenPlayer checklist with evidence
 - [x] **Phase 6: Detail Page & Metadata** (completed 2026-09-09; jf7 live on the parallel container) - Cheap, scrobble-safe item detail; single Jellyfin limiter design; certification, provider ids, crew photos, episode cast, season posters, person pages
+- [ ] **Phase 7: Browse & Media Fixes** - Person filmography, Similar, hide empty/search-only libraries, image redirects + TMDB sizing, PlaybackInfo cap, review items from 2026-09-09
 - [ ] **Phase 4: Cut-over** - Production on the ported image with rollback, all profiles
 - [x] **Phase 5: Jellyfin Hardening** (completed 2026-09-08; jf3 live on the parallel container; cast photos + service reuse to be eyeballed by Maged in Infuse) - Fix the Infuse tvOS home-screen 429s, cast photos, per-user service caching, error isolation and contract bugs found in the 2026-09-08 audit
 
@@ -81,4 +82,15 @@
   4. `/Persons/{name}` returns a photo when one was ever seen for that name
 **Plans**: 06-01 detail cost + limiter; 06-02 metadata + person pages + jf7 deploy
 **Executor**: Sonnet; Fable authored plans from the 2026-09-08/09 live probes
+
+### Phase 7: Browse & Media Fixes
+**Goal**: Every strip Infuse renders is populated and public artwork is served by redirect, not relay
+**Depends on**: Phase 6
+**Requirements**: FIX-01, FIX-02, FIX-03
+**Success Criteria**:
+  1. `Items?PersonIds=<actor>` returns that actor's titles; `/Items/{id}/Similar` returns items for a movie with genres
+  2. `UserViews` contains no search-only catalogs and no catalog whose last page fetch was empty
+  3. `GET /Items/{id}/Images/Backdrop?maxWidth=780` answers with a 302 to a sized TMDB URL in < 50 ms; PlaybackInfo for a non-SenPlayer client returns ≤ 20 sources
+**Plans**: 07-01 browse fixes; 07-02 media path + deploy via GHCR
+**Executor**: Sonnet; Fable authored from `/Users/magededward/claude-cc/aiostreams-jf-review-2026-09-09.md`. Watch tracking/scrobbling deliberately deferred (Maged, 2026-09-09).
 
