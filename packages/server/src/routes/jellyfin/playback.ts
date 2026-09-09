@@ -419,18 +419,15 @@ const TMDB_POSTER_SIZES = [
   { name: 'w342', px: 342 },
   { name: 'w500', px: 500 },
   { name: 'w780', px: 780 },
-  { name: 'original', px: Infinity },
 ];
 const TMDB_BACKDROP_SIZES = [
   { name: 'w300', px: 300 },
   { name: 'w780', px: 780 },
   { name: 'w1280', px: 1280 },
-  { name: 'original', px: Infinity },
 ];
 const TMDB_PROFILE_SIZES = [
   { name: 'w185', px: 185 },
   { name: 'h632', px: 632 },
-  { name: 'original', px: Infinity },
 ];
 
 function requestedImageWidth(req: Request): number | undefined {
@@ -604,11 +601,9 @@ router.get(
       res.status(404).end();
       return;
     }
-    if (result.public) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.redirect(302, result.url);
-      return;
-    }
+    // Jellyfin clients (Infuse tvOS/iOS verified 2026-09-09) do NOT follow
+    // redirects for artwork, so public URLs are relayed too — but already
+    // size-rewritten by imageUrlFor(), which keeps the transfer small.
     try {
       const headers: Record<string, string> = {};
       const inm = req.headers['if-none-match'];
@@ -616,16 +611,17 @@ router.get(
       const ims = req.headers['if-modified-since'];
       if (typeof ims === 'string') headers['if-modified-since'] = ims;
       const upstream = await relay(result.url, headers);
+      let source = upstream;
       if (upstream.status >= 400) {
         const fallbackUrl = await fallbackImageUrl(itemIdParam, typeParam);
-        if (fallbackUrl) {
-          res.redirect(302, fallbackUrl);
-        } else {
+        const fb = fallbackUrl ? await relay(fallbackUrl, {}) : null;
+        if (!fb || fb.status >= 400) {
           res.status(404).end();
+          return;
         }
-        return;
+        source = fb;
       }
-      res.status(upstream.status);
+      res.status(source.status);
       for (const h of [
         'content-type',
         'content-length',
@@ -634,15 +630,15 @@ router.get(
         'cache-control',
         'expires',
       ]) {
-        const v = upstream.headers.get(h);
+        const v = source.headers.get(h);
         if (v) res.setHeader(h, v);
       }
-      if (!upstream.body || upstream.status === 304) {
+      if (!source.body || source.status === 304) {
         res.end();
         return;
       }
       await pipeline(
-        Readable.fromWeb(upstream.body as import('stream/web').ReadableStream),
+        Readable.fromWeb(source.body as import('stream/web').ReadableStream),
         res
       ).catch(() => undefined);
     } catch (error) {
@@ -673,11 +669,6 @@ router.head(
     ).catch(() => null);
     if (!result) {
       res.status(404).end();
-      return;
-    }
-    if (result.public) {
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      res.redirect(302, result.url);
       return;
     }
     res.status(200).end();
