@@ -31,9 +31,9 @@
 - [x] **DET-02**: One device-keyed limiter for authenticated Jellyfin traffic; login and PlaybackInfo keep their tight limits
 - [x] **META-01**: OfficialRating, Tmdb/Tvdb ProviderIds, crew photos, episode People, season posters mapped from AioMetadata meta
 - [x] **META-02**: Person items carry a photo from the persistent image cache
-- [ ] **FIX-01**: Person filmography and Similar strips populated; sort applied once per response
-- [ ] **FIX-02**: Search-only and empty catalogs hidden from Jellyfin views
-- [ ] **FIX-03**: Public artwork served by 302 with TMDB size rewrite; PlaybackInfo capped; person-image cache writes memoised; season lookups scoped
+- [x] **FIX-01**: Person filmography and Similar strips populated; sort applied once per response
+- [x] **FIX-02**: Search-only and empty catalogs hidden from Jellyfin views
+- [x] **FIX-03**: Public artwork served by 302 with TMDB size rewrite; PlaybackInfo capped; person-image cache writes memoised; season lookups scoped
 - [ ] **CUT-01**: Production switched to the ported image after Maged's approval; other profiles get AioMetadata; rollback verified possible
 
 ## Out of Scope
@@ -50,5 +50,5 @@
 | PROF-01, CLI-01..03 | Phase 3 | Pending |
 | HARD-01..04 | Phase 5 | Complete (HARD-02 client confirmation pending) |
 | DET-01..02, META-01..02 | Phase 6 | Complete |
-| FIX-01..03 | Phase 7 | Pending |
+| FIX-01..03 | Phase 7 | Complete |
 | CUT-01 | Phase 4 | Pending |

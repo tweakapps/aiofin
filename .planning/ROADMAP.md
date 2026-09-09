@@ -10,7 +10,7 @@
 - [x] **Phase 2: Parallel Deploy** (completed 2026-09-08; GHCR push deferred) - Image on GHCR, parallel container on the Dubai VPS with a DB copy
 - [ ] **Phase 3: Profile & Clients** - AioMetadata in the profile, Infuse/SenPlayer checklist with evidence
 - [x] **Phase 6: Detail Page & Metadata** (completed 2026-09-09; jf7 live on the parallel container) - Cheap, scrobble-safe item detail; single Jellyfin limiter design; certification, provider ids, crew photos, episode cast, season posters, person pages
-- [ ] **Phase 7: Browse & Media Fixes** - Person filmography, Similar, hide empty/search-only libraries, image redirects + TMDB sizing, PlaybackInfo cap, review items from 2026-09-09
+- [x] **Phase 7: Browse & Media Fixes** (completed 2026-09-09; `ghcr.io/tweakapps/aiostreams-jf:release` @ `2ec9f966bede` live on the parallel container, first GHCR-only deploy) - Person filmography, Similar, hide empty/search-only libraries, image redirects + TMDB sizing, PlaybackInfo cap, review items from 2026-09-09
 - [ ] **Phase 4: Cut-over** - Production on the ported image with rollback, all profiles
 - [x] **Phase 5: Jellyfin Hardening** (completed 2026-09-08; jf3 live on the parallel container; cast photos + service reuse to be eyeballed by Maged in Infuse) - Fix the Infuse tvOS home-screen 429s, cast photos, per-user service caching, error isolation and contract bugs found in the 2026-09-08 audit
 
