@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 // way production does (packages/server/src/app.ts pulls it in first).
 import type { MetaPreview } from '../db/schemas.js';
 import {
+  buildMetaItem,
   officialRatingFor,
   peopleFrom,
   providerIdsFor,
@@ -161,5 +162,14 @@ describe('stubMediaSources', () => {
     const sources = stubMediaSources('item-1', 'Movie');
     assert.equal(sources.length, 1);
     assert.equal(sources[0].Id, 'item-1');
+  });
+});
+
+describe('MediaSourceCount', () => {
+  it('is not set on a stub-sourced list item (Infuse Direct must not show a version arrow for it)', () => {
+    const meta = { id: 'tt1', type: 'movie', name: 'Movie' } as unknown as MetaPreview;
+    const item = buildMetaItem(ctx, meta);
+    assert.equal(item.MediaSources?.length, 1);
+    assert.equal(item.MediaSourceCount, undefined);
   });
 });

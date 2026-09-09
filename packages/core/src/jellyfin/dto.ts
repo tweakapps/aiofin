@@ -77,6 +77,8 @@ export type JellyfinItem = {
   ServerId: string;
   Type: JellyfinItemType;
   IsFolder: boolean;
+  MediaSources?: JellyfinMediaSource[];
+  MediaSourceCount?: number;
   [key: string]: unknown;
 };
 
