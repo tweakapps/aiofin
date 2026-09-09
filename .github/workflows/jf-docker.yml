@@ -1,13 +1,13 @@
-name: JF Docker Image
+name: AioFin Docker Image
 
 on:
   push:
     branches: [release]
-    tags: ['jf-v*']
+    tags: ['aiofin-v*', 'jf-v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing jf-v* tag to build and publish (checked out from that tag)'
+        description: 'Existing aiofin-v* or jf-v* tag to build and publish (checked out from that tag)'
         required: true
         type: string
 
@@ -16,7 +16,9 @@ permissions:
   packages: write
 
 env:
-  IMAGE: ghcr.io/${{ github.repository_owner }}/aiostreams-jf
+  IMAGE: ghcr.io/${{ github.repository_owner }}/aiofin
+  # Legacy image name, still published for existing installs. Remove after a few releases.
+  LEGACY_IMAGE: ghcr.io/${{ github.repository_owner }}/aiostreams-jf
 
 jobs:
   build:
@@ -128,6 +130,7 @@ jobs:
           for tag in ${TAGS}; do
             docker buildx imagetools create \
               -t "${{ env.IMAGE }}:${tag}" \
+              -t "${{ env.LEGACY_IMAGE }}:${tag}" \
               "${{ env.IMAGE }}@$(cat /tmp/digests/amd64)" \
               "${{ env.IMAGE }}@$(cat /tmp/digests/arm64)"
           done

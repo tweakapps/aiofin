@@ -1,18 +1,18 @@
-<h1 align="center">AIOStreams‑JF</h1>
+<h1 align="center">AioFin</h1>
 
 <p align="center"><strong>Your AIOStreams profile, served as a Jellyfin server.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/tweakapps/aiostreams-jf-update/releases"><img src="https://img.shields.io/github/v/release/tweakapps/aiostreams-jf-update?filter=jf-v*&label=release&style=flat-square" alt="Latest release"></a>
-  <a href="https://github.com/tweakapps/aiostreams-jf-update/pkgs/container/aiostreams-jf"><img src="https://img.shields.io/badge/ghcr.io-aiostreams--jf-blue?style=flat-square&logo=docker" alt="Docker image"></a>
+  <a href="https://github.com/tweakapps/aiofin/releases"><img src="https://img.shields.io/github/v/release/tweakapps/aiofin?filter=jf-v*&label=release&style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/tweakapps/aiofin/pkgs/container/aiofin"><img src="https://img.shields.io/badge/ghcr.io-aiofin-blue?style=flat-square&logo=docker" alt="Docker image"></a>
   <a href="https://github.com/sponsors/tweakapps"><img src="https://img.shields.io/badge/%E2%99%A5_sponsor-tweakapps-db61a2?style=flat-square" alt="Sponsor"></a>
 </p>
 
-AIOStreams is brilliant inside Stremio. Outside it, though, you're stuck: Infuse, SenPlayer, Swiftfin and friends don't speak Stremio. This fork adds a Jellyfin‑compatible API on top of the current upstream AIOStreams, so those apps can log in and see your profile as if it were a Jellyfin server.
+AIOStreams is brilliant inside Stremio. Outside it, though, you're stuck: Infuse, SenPlayer, Swiftfin and friends don't speak Stremio. AioFin adds a Jellyfin‑compatible API on top of the current upstream AIOStreams, so those apps can log in and see your profile as if it were a Jellyfin server.
 
 Your catalogs become libraries. Your metadata addon fills in posters, cast and seasons. Your stream addons provide the sources, and the player plays them directly. Watched state, resume and favourites are stored per profile. There is no Jellyfin server behind it and nothing is transcoded.
 
-The Jellyfin layer was first written by [qooode](https://github.com/qooode/AIOStreams) against a development snapshot. This fork ports it onto upstream release tags and keeps it there, so you get every upstream AIOStreams release with the layer included.
+The Jellyfin layer was first written by [qooode](https://github.com/qooode/AIOStreams) against a development snapshot. AioFin ports it onto upstream release tags and keeps it there, so you get every upstream AIOStreams release with the layer included. (The AioFin name was briefly used for an earlier Remux‑based experiment; this is its replacement, built on AIOStreams.)
 
 ## What you get
 
@@ -31,13 +31,13 @@ Use the image in place of `ghcr.io/viren070/aiostreams` and keep your existing e
 ```yaml
 services:
   aiostreams:
-    image: ghcr.io/tweakapps/aiostreams-jf:jf-v2.34.0-9   # see Releases for the latest
+    image: ghcr.io/tweakapps/aiofin:jf-v2.34.0-9   # see Releases for the latest
     environment:
       - ENABLE_JELLYFIN_API=true
       # ...your normal AIOStreams settings
 ```
 
-Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. Every tag on the [Releases](https://github.com/tweakapps/aiostreams-jf-update/releases) page has a matching image; `release` tracks the branch. Upgrade with `docker compose pull && docker compose up -d`.
+Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. The previous image name, `ghcr.io/tweakapps/aiostreams-jf`, is still published for now but is deprecated; switch to `aiofin`. Every tag on the [Releases](https://github.com/tweakapps/aiofin/releases) page has a matching image; `release` tracks the branch. Upgrade with `docker compose pull && docker compose up -d`.
 
 ## Connect a player
 
@@ -71,9 +71,9 @@ All optional. Defaults suit a household server.
 
 ## Releases and changes
 
-One release per update, each with its own notes: [Releases](https://github.com/tweakapps/aiostreams-jf-update/releases). The same history in one file: [CHANGELOG‑JF.md](CHANGELOG-JF.md).
+One release per update, each with its own notes: [Releases](https://github.com/tweakapps/aiofin/releases). The same history in one file: [CHANGELOG.md](CHANGELOG-AIOFIN.md).
 
-Branches: `release` is the default and what images are built from, upstream's latest tag plus the layer. `main` mirrors upstream development and is left untouched, so new upstream versions merge cleanly.
+Branches: `release` is the default and what images are built from, upstream's latest tag plus AioFin. `main` mirrors upstream development and is left untouched, so new upstream versions merge cleanly.
 
 ## Support
 
@@ -83,7 +83,7 @@ Branches: `release` is the default and what images are built from, upstream's la
   <a href="https://github.com/sponsors/Viren070"><img src=".github/assets/sponsor-upstream.svg" width="300" alt="Sponsor Viren070, author of AIOStreams"></a>
 </p>
 
-<p align="center">Free to use, no fees taken. If the Jellyfin layer saves you time, chip in on the left. AIOStreams itself is <a href="https://github.com/Viren070/AIOStreams">Viren070</a>'s work; if you only pick one, pick the right. The layer started with <a href="https://github.com/qooode/AIOStreams">qooode</a>.</p>
+<p align="center">Free to use, no fees taken. If AioFin saves you time, chip in on the left. AIOStreams itself is <a href="https://github.com/Viren070/AIOStreams">Viren070</a>'s work; if you only pick one, pick the right. The layer started with <a href="https://github.com/qooode/AIOStreams">qooode</a>.</p>
 
 ---
 

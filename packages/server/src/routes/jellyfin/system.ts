@@ -25,7 +25,7 @@ import {
 const logger = createLogger('jellyfin');
 const router: Router = Router({ mergeParams: true });
 
-const serverName = () => appConfig.branding.addonName || 'AIOStreams';
+const serverName = () => appConfig.branding.addonName || 'AioFin';
 
 function publicInfo(req: Request) {
   const ctx = req.jf;
