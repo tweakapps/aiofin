@@ -13,7 +13,7 @@
 >
 > **Build:** run `node scripts/generateMetadata.cjs` before `docker build` so the version shows correctly. **Update:** merge the new upstream tag into `release` (only the hook files can conflict), rebuild. The exact port is documented in `.planning/phases/01-port/jellyfin-layer.patch`.
 >
-> **Docker image:** `ghcr.io/tweakapps/aiostreams-jf:<tag>` — pinned tags match the [GitHub Releases](https://github.com/tweakapps/aiostreams-jf-update/releases) (e.g. `jf-v2.34.0-2`, recommended); `release` is the moving edge built by `.github/workflows/jf-docker.yml` on every push. Deploy/upgrade: change the tag, then `docker compose pull && docker compose up -d`.
+> **Docker image:** `ghcr.io/tweakapps/aiostreams-jf:<tag>` — pinned tags match the [GitHub Releases](https://github.com/tweakapps/aiostreams-jf-update/releases) (e.g. `jf-v2.34.0-2`, recommended); `release` is the moving edge built by `.github/workflows/jf-docker.yml` on every push. Deploy/upgrade: change the tag, then `docker compose pull && docker compose up -d`. Full fork history: [CHANGELOG-JF.md](CHANGELOG-JF.md).
 >
 > **Note:** `JELLYFIN_ALWAYS_ATTACH_SOURCES` now defaults to **false**; SenPlayer-style clients are matched by name via `JELLYFIN_ATTACH_SOURCES_CLIENTS` (default `SenPlayer`).
 >
