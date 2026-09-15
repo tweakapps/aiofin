@@ -11,3 +11,4 @@ data/
 testing/
 build/.planning/
 .planning/
+*.bak-*
