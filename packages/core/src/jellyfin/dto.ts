@@ -14,6 +14,7 @@ import { IdParser } from '../utils/id-parser.js';
 import { languageToCode } from '../utils/languages.js';
 import { encodeJellyfinId, imageTag, streamIdToMediaSourceId } from './ids.js';
 import { rememberImages, type ItemImages } from './images.js';
+import { withPlaybackDisplaySegment } from '../debrid/utils.js';
 
 export const TICKS_PER_MS = 10_000;
 export const TICKS_PER_SECOND = 10_000_000;
@@ -983,6 +984,9 @@ const RES_TO_SIZE: Record<string, [number, number]> = {
   '240p': [320, 240],
 };
 
+const VIDEO_EXTENSION_RE =
+  /^(mkv|mp4|avi|mov|m4v|ts|webm|wmv|flv|m2ts|mpg|mpeg)$/i;
+
 function containerOf(stream: ParsedStream): string {
   const ext =
     stream.parsedFile?.container ||
@@ -990,9 +994,36 @@ function containerOf(stream: ParsedStream): string {
     stream.filename?.split('.').pop() ||
     (stream.url ? stream.url.split('?')[0].split('.').pop() : undefined);
   const c = (ext || '').toLowerCase().replace(/^\./, '');
-  if (/^(mkv|mp4|avi|mov|m4v|ts|webm|wmv|flv|m2ts|mpg|mpeg)$/.test(c)) return c;
+  if (VIDEO_EXTENSION_RE.test(c)) return c;
   if (stream.type === 'live') return 'ts';
   return 'mkv';
+}
+
+/**
+ * Build the display-only trailing filename for a playback URL: the formatter's
+ * stream name, sanitised for use as a single path segment, plus the file's
+ * real extension. Empty formatted names yield an empty string (no decoration).
+ */
+export function displayFilenameFor(
+  stream: ParsedStream,
+  formattedName: string
+): string {
+  let label = formattedName
+    .replace(/[\u0000-\u001f\u007f]+/g, ' ')
+    .replace(/[\/\\%]/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (label.length > 160) {
+    const cut = label.slice(0, 160);
+    const lastSpace = cut.lastIndexOf(' ');
+    label =
+      lastSpace >= 100 ? cut.slice(0, lastSpace) : cut;
+    label = label.replace(/[\s·-]+$/, '').trim();
+  }
+  if (!label) return '';
+  const fromName = stream.filename?.match(/\.([a-z0-9]{2,4})$/i)?.[1]?.toLowerCase();
+  const ext = fromName && VIDEO_EXTENSION_RE.test(fromName) ? fromName : containerOf(stream);
+  return `${label}.${ext}`;
 }
 
 function channelsOf(tag: string | undefined): number | undefined {
@@ -1216,7 +1247,7 @@ export function buildMediaSource(
   }
   const msid = mediaSourceIdFor(stream);
   const container = containerOf(stream);
-  const path = stream.url;
+  const path = withPlaybackDisplaySegment(stream.url, displayFilenameFor(stream, formatted.name));
 
   const subs: { url: string; lang: string; id: string }[] = [
     ...(stream.subtitles ?? []).map((s) => ({

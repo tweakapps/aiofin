@@ -4,16 +4,20 @@ import assert from 'node:assert/strict';
 // packages/core/test/setup.ts before any test file runs, resolving the
 // pre-existing config <-> tasks <-> logger circular dependency the same
 // way production does (packages/server/src/app.ts pulls it in first).
-import type { MetaPreview } from '../db/schemas.js';
+import type { MetaPreview, ParsedStream } from '../db/schemas.js';
 import {
+  buildMediaSource,
   buildMetaItem,
+  displayFilenameFor,
   officialRatingFor,
   peopleFrom,
   providerIdsFor,
   stubMediaSources,
   type ItemBuildContext,
+  type MediaSourceBuildOptions,
 } from './dto.js';
 import { recallImages } from './images.js';
+import { PLAYBACK_PATH_PREFIX } from '../debrid/utils.js';
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
@@ -185,5 +189,107 @@ describe('EnableMediaSourceDisplay', () => {
     const meta = { id: 'tt2', type: 'series', name: 'Series' } as unknown as MetaPreview;
     const item = buildMetaItem(ctx, meta);
     assert.equal(item.EnableMediaSourceDisplay, undefined);
+  });
+});
+
+const OWNED_5_SEG_URL =
+  'http://localhost:3000' +
+  PLAYBACK_PATH_PREFIX +
+  'storeAuth123/-/fileInfoABC/meta456/S01E01%20-%20Turning%20Point.mkv';
+
+const buildOpts: MediaSourceBuildOptions = {
+  baseUrl: 'http://localhost:3000',
+  itemId: 'item-1',
+  apiKey: 'apikey',
+  encrypt: (plain: string) => plain,
+  subtitles: [],
+};
+
+function ownedStream(overrides: Partial<ParsedStream> = {}): ParsedStream {
+  return {
+    id: 's-1',
+    type: 'debrid',
+    url: OWNED_5_SEG_URL,
+    filename: 'S01E01 - Turning Point.mkv',
+    ...overrides,
+  } as unknown as ParsedStream;
+}
+
+describe('buildMediaSource — display segment decoration', () => {
+  it('appends the formatted name as a trailing display segment, keeps the filename segment intact', () => {
+    const stream = ownedStream();
+    const source = buildMediaSource(
+      stream,
+      { name: '1080p BluRay · 627 MB · Bento · TorBox · Nyaa', description: '' },
+      buildOpts
+    );
+    assert.ok(source);
+    const expectedSuffix =
+      '/S01E01%20-%20Turning%20Point.mkv/1080p%20BluRay%20%C2%B7%20627%20MB%20%C2%B7%20Bento%20%C2%B7%20TorBox%20%C2%B7%20Nyaa.mkv';
+    assert.ok(source!.Path.endsWith(expectedSuffix), source!.Path);
+    assert.ok(source!.DirectStreamUrl?.endsWith(expectedSuffix));
+    assert.equal(source!.Name, '1080p BluRay · 627 MB · Bento · TorBox · Nyaa');
+  });
+
+  it('Id is unchanged regardless of decoration', () => {
+    const stream = ownedStream();
+    const withDecoration = buildMediaSource(
+      stream,
+      { name: 'Some Label', description: '' },
+      buildOpts
+    );
+    const withoutDecoration = buildMediaSource(
+      stream,
+      { name: '', description: '' },
+      buildOpts
+    );
+    assert.equal(withDecoration!.Id, withoutDecoration!.Id);
+  });
+
+  it('leaves Path unchanged for an external (non-owned) URL', () => {
+    const stream = ownedStream({
+      url: 'https://torrentio.strem.fun/stream/movie/tt123.json',
+    });
+    const source = buildMediaSource(
+      stream,
+      { name: '1080p BluRay · Bento', description: '' },
+      buildOpts
+    );
+    assert.equal(source!.Path, stream.url);
+    assert.equal(source!.DirectStreamUrl, stream.url);
+  });
+});
+
+describe('displayFilenameFor', () => {
+  it('sanitises newlines, slashes and percent signs', () => {
+    const stream = ownedStream({ filename: 'file.mkv' });
+    const label = displayFilenameFor(stream, 'a/b\\c%d\ne');
+    assert.equal(label, 'a-b-c-d e.mkv');
+  });
+
+  it('caps a very long name at <= 164 chars including the extension', () => {
+    const stream = ownedStream({ filename: 'file.mkv' });
+    const longName = 'x'.repeat(300);
+    const label = displayFilenameFor(stream, longName);
+    assert.ok(label.length <= 164, `length was ${label.length}`);
+    assert.ok(label.endsWith('.mkv'));
+  });
+
+  it('falls back to containerOf (mkv) when stream.filename is undefined', () => {
+    const stream = ownedStream({ filename: undefined, url: OWNED_5_SEG_URL });
+    const label = displayFilenameFor(stream, 'Some Label');
+    assert.equal(label, 'Some Label.mkv');
+  });
+
+  it('uses the .mp4 extension from stream.filename when present', () => {
+    const stream = ownedStream({ filename: 'movie.mp4' });
+    const label = displayFilenameFor(stream, 'Some Label');
+    assert.equal(label, 'Some Label.mp4');
+  });
+
+  it('returns an empty string for an empty formatted name (no decoration)', () => {
+    const stream = ownedStream();
+    assert.equal(displayFilenameFor(stream, ''), '');
+    assert.equal(displayFilenameFor(stream, '   '), '');
   });
 });

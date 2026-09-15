@@ -938,6 +938,38 @@ export function generatePlaybackUrl(
 /** Marker that prefixes the path of a playback URL we generated. */
 export const PLAYBACK_PATH_PREFIX = '/api/v1/debrid/playback/';
 
+/** Number of path segments after PLAYBACK_PATH_PREFIX in a current-format owned playback URL. */
+export const PLAYBACK_SEGMENT_COUNT = 5;
+
+/**
+ * Append a display-only trailing segment to an owned playback URL so clients
+ * that render the last path component (Strand) show a readable label instead of
+ * the release filename. The `:filename` segment before it is untouched — the
+ * server still resolves and locks on it. Returns the URL unchanged when it is
+ * not a current-format owned URL (external, proxied, legacy, already decorated)
+ * or when `display` is empty.
+ */
+export function withPlaybackDisplaySegment(url: string, display: string): string {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return url;
+  }
+  if (!u.pathname.startsWith(PLAYBACK_PATH_PREFIX)) return url;
+  const segs = u.pathname.slice(PLAYBACK_PATH_PREFIX.length).split('/');
+  if (
+    segs.length !== PLAYBACK_SEGMENT_COUNT ||
+    segs.some((s) => s.length === 0)
+  ) {
+    return url;
+  }
+  const trimmedDisplay = display.trim();
+  if (!trimmedDisplay) return url;
+  u.pathname = u.pathname.replace(/\/$/, '') + '/' + encodeURIComponent(trimmedDisplay);
+  return u.toString();
+}
+
 /**
  * Rewrite the fallback-key segment of a playback URL produced by
  * {@link generatePlaybackUrl}. Returns the URL unchanged if it isn't one of

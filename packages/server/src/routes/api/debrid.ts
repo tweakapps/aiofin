@@ -46,10 +46,16 @@ interface PlaybackParams {
   fileInfo: string;
   metadataId: string;
   filename: string;
+  // Display-only trailing segment added by withPlaybackDisplaySegment (see
+  // @aiostreams/core packages/core/src/debrid/utils.ts). Never read.
+  displayName?: string;
 }
 
 router.get(
   [
+    // Display-only 6th segment — see withPlaybackDisplaySegment. displayName is
+    // intentionally never used by the handler below.
+    '/playback/:encryptedStoreAuth/:fallbackKey/:fileInfo/:metadataId/:filename/:displayName',
     '/playback/:encryptedStoreAuth/:fallbackKey/:fileInfo/:metadataId/:filename',
     // Legacy
     '/playback/:encryptedStoreAuth/:fileInfo/:metadataId/:filename',

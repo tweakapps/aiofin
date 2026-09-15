@@ -68,6 +68,7 @@ All optional. Defaults suit a household server.
 - **Aliases are open.** An alias login accepts any password, because aliases are share links. Don't alias a profile you expose through this layer unless you mean it to be open.
 - **Metadata addon check‑ins.** Some metadata addons report "watching" to Trakt or Simkl when subtitles are requested. Leave that addon's subtitles resource off in profiles you use through this layer, or you'll get check‑ins that don't match real playback.
 - **Players do their own subtitles.** Infuse and SenPlayer fetch subtitles themselves, and embedded tracks play as usual. Add a subtitle addon to the profile if you want more.
+- **Playback URLs carry a display label.** Playback URLs handed to Jellyfin clients carry a trailing, display-only segment made from the formatter's stream name plus the file extension, so clients that show the file name (e.g. Strand) show your formatter label instead of the release filename. The segment is ignored by the server.
 
 ## Releases and changes
 
