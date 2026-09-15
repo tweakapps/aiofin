@@ -1,6 +1,6 @@
 # AioFin changelog
 
-AioFin (formerly AIOStreams-JF): the Jellyfin compatibility layer on top of upstream AIOStreams. Upstream's own changelog is in `CHANGELOG.md`. Releases are tagged `jf-v<upstream version>-<n>`; the matching Docker image is `ghcr.io/tweakapps/aiofin:<tag>` (multi-arch: amd64, arm64); `ghcr.io/tweakapps/aiofin:release` tracks the `release` branch. The old image name `ghcr.io/tweakapps/aiostreams-jf` is still published for now. New releases are tagged `aiofin-v<upstream>-<n>`; the first nine kept their `jf-v2.34.0-<n>` tags.
+AioFin (formerly AIOStreams-JF): the Jellyfin compatibility layer on top of upstream AIOStreams. Upstream's own changelog is in `CHANGELOG.md`. Releases are tagged `jf-v<upstream version>-<n>`; the matching Docker image is `ghcr.io/tweakapps/aiofin:<tag>` (multi-arch: amd64, arm64); `ghcr.io/tweakapps/aiofin:release` tracks the `release` branch. New releases are tagged `aiofin-v<upstream>-<n>`; the first nine kept their `jf-v2.34.0-<n>` tags.
 
 ## aiofin-v2.34.0-14 — 2026-09-15
 

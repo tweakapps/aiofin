@@ -37,7 +37,7 @@ services:
       # ...your normal AIOStreams settings
 ```
 
-Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. The previous image name, `ghcr.io/tweakapps/aiostreams-jf`, is still published for now but is deprecated; switch to `aiofin`. Every tag on the [Releases](https://github.com/tweakapps/aiofin/releases) page has a matching image; `release` tracks the branch. Upgrade with `docker compose pull && docker compose up -d`.
+Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. Every tag on the [Releases](https://github.com/tweakapps/aiofin/releases) page has a matching image; `release` tracks the branch. Upgrade with `docker compose pull && docker compose up -d`.
 
 ## Connect a player
 
