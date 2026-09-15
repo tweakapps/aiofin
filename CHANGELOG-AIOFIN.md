@@ -2,6 +2,10 @@
 
 AioFin (formerly AIOStreams-JF): the Jellyfin compatibility layer on top of upstream AIOStreams. Upstream's own changelog is in `CHANGELOG.md`. Releases are tagged `jf-v<upstream version>-<n>`; the matching Docker image is `ghcr.io/tweakapps/aiofin:<tag>` (multi-arch: amd64, arm64); `ghcr.io/tweakapps/aiofin:release` tracks the `release` branch. New releases are tagged `aiofin-v<upstream>-<n>`; the first nine kept their `jf-v2.34.0-<n>` tags.
 
+## Channels (2026-09-15)
+
+Added a `nightly` channel alongside `release`: `ghcr.io/tweakapps/aiofin:nightly` (rolling) and `:nightly-YYYYMMDD` (pinnable) track upstream AIOStreams' development branch with the same Jellyfin layer. See the README's Channels section for details.
+
 ## aiofin-v2.34.0-15 — 2026-09-15
 
 - Pressing Play no longer re-scrapes when the item was just opened. Stream resolution is now cached independently of subtitles, so the source list a client's PlaybackInfo request builds reuses the scrape done on item open instead of running every stream addon a second time. Warm play is noticeably faster (that second scrape was most of the wait); cold play is unchanged, and subtitles are still fetched and attached exactly as before.

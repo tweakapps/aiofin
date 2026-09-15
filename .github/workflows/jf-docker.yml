@@ -2,7 +2,7 @@ name: AioFin Docker Image
 
 on:
   push:
-    branches: [release]
+    branches: [release, nightly]
     tags: ['aiofin-v*', 'jf-v*']
   workflow_dispatch:
     inputs:
@@ -115,7 +115,11 @@ jobs:
           if [[ -n "${{ inputs.tag }}" ]]; then
             TAGS="${TAGS} ${{ inputs.tag }}"
           elif [[ "${{ github.ref_type }}" == "branch" ]]; then
-            TAGS="${TAGS} release"
+            if [[ "${{ github.ref_name }}" == "nightly" ]]; then
+              TAGS="${TAGS} nightly nightly-$(date -u +%Y%m%d)"
+            else
+              TAGS="${TAGS} ${{ github.ref_name }}"
+            fi
           elif [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAGS="${TAGS} ${{ github.ref_name }}"
           fi

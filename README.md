@@ -24,20 +24,28 @@ The Jellyfin layer was first written by [qooode](https://github.com/qooode/AIOSt
 
 Tested with Infuse (tvOS, iOS, macOS) and SenPlayer. Swiftfin, Findroid, Streamyfin, the Jellyfin web and desktop clients and Kodi use the same API and should work; reports welcome.
 
+## Channels
+
+AioFin ships two channels, same as upstream AIOStreams does with its own image. Both get AioFin's Jellyfin‑layer updates as soon as they land — the only difference is which upstream AIOStreams build sits underneath:
+
+- **Stable** (recommended) — `ghcr.io/tweakapps/aiofin:aiofin-v2.34.0-N`. The Jellyfin layer on the latest upstream AIOStreams *release*. Predictable; pin the version tag shown on [Releases](https://github.com/tweakapps/aiofin/releases).
+- **Nightly** — `ghcr.io/tweakapps/aiofin:nightly` (rolling) or `ghcr.io/tweakapps/aiofin:nightly-YYYYMMDD` (pinnable). The same Jellyfin layer, but on the latest upstream AIOStreams *nightly* (development) build. Use this if you want the newest upstream engine improvements (e.g. usenet playback‑reliability fixes) before they reach a stable release, and you're fine running unreviewed upstream dev code. Same environment variables and configuration as stable.
+
 ## Run it
 
-Use the image in place of `ghcr.io/viren070/aiostreams` and keep your existing environment. Pin a release tag rather than `release` if you want predictable upgrades.
+Use the image in place of `ghcr.io/viren070/aiostreams` and keep your existing environment. Pin a release tag rather than `release` or `nightly` if you want predictable upgrades.
 
 ```yaml
 services:
   aiostreams:
     image: ghcr.io/tweakapps/aiofin:aiofin-v2.34.0-15   # see Releases for the latest
+    # image: ghcr.io/tweakapps/aiofin:nightly            # or pin: nightly-YYYYMMDD
     environment:
       - ENABLE_JELLYFIN_API=true
       # ...your normal AIOStreams settings
 ```
 
-Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. Every tag on the [Releases](https://github.com/tweakapps/aiofin/releases) page has a matching image; `release` tracks the branch. Upgrade with `docker compose pull && docker compose up -d`.
+Images are multi‑arch (amd64 and arm64) and built by GitHub Actions. Every tag on the [Releases](https://github.com/tweakapps/aiofin/releases) page has a matching image; `release` tracks the stable branch, `nightly` tracks the nightly branch. Upgrade with `docker compose pull && docker compose up -d`.
 
 ## Connect a player
 
@@ -75,7 +83,7 @@ All optional. Defaults suit a household server.
 
 One release per update, each with its own notes: [Releases](https://github.com/tweakapps/aiofin/releases). The same history in one file: [CHANGELOG.md](CHANGELOG-AIOFIN.md).
 
-Branches: `release` is the default and what images are built from, upstream's latest tag plus AioFin. `main` mirrors upstream development and is left untouched, so new upstream versions merge cleanly.
+Branches: `release` is the default and what stable images are built from, upstream's latest tag plus AioFin. `nightly` mirrors upstream's development branch plus AioFin, and is what nightly images are built from. `main` mirrors upstream development and is left untouched, so new upstream versions merge cleanly.
 
 ## Support
 
