@@ -56,13 +56,15 @@ export interface ResolvedStreams {
   errors: { title?: string; description?: string }[];
 }
 
+type ScrapedStreams = Omit<ResolvedStreams, 'subtitles'>;
+
 export class JellyfinService {
   private engine: AIOStreams | null = null;
   private initPromise: Promise<AIOStreams> | null = null;
   private readonly metaMemo = new Map<string, MemoEntry<ParsedMeta | null>>();
   private readonly catalogMemo = new Map<string, MemoEntry<MetaPreview[]>>();
   private readonly subtitleMemo = new Map<string, MemoEntry<Subtitle[]>>();
-  private readonly streamsMemo = new Map<string, MemoEntry<ResolvedStreams>>();
+  private readonly streamsMemo = new Map<string, MemoEntry<ScrapedStreams>>();
   /**
    * Catalogs (keyed `type|id`) whose first, unfiltered page returned zero
    * items on the most recent fetch, with an expiry timestamp. Used by
@@ -329,15 +331,14 @@ export class JellyfinService {
     videoId: string,
     withSubtitles = true
   ): Promise<ResolvedStreams> {
-    const k = `${type}|${videoId}|${withSubtitles ? 1 : 0}`;
-    return this.memo(this.streamsMemo, k, STREAMS_MEMO_TTL_MS, async () => {
+    // Memo key is subtitle-independent so the detail-open resolve (no subs)
+    // and the PlaybackInfo resolve (with subs) share ONE scrape. Subtitles
+    // are a separate cheap fetch (subtitleMemo) attached after, so pressing
+    // Play reuses the on-open scrape instead of re-running engine.getStreams.
+    const k = `${type}|${videoId}`;
+    const scrape = this.memo(this.streamsMemo, k, STREAMS_MEMO_TTL_MS, async () => {
       const engine = await this.getEngine();
-      const [response, subtitles] = await Promise.all([
-        engine.getStreams(videoId, type),
-        withSubtitles
-          ? this.getSubtitles(type, videoId)
-          : Promise.resolve([] as Subtitle[]),
-      ]);
+      const response = await engine.getStreams(videoId, type);
       const streams = response.data.streams.filter((s) => !!s.url);
       const ctx = engine.getStreamContext();
       const formatter = ctx
@@ -364,10 +365,15 @@ export class JellyfinService {
       return {
         streams,
         formatted,
-        subtitles,
         errors: response.errors ?? [],
       };
     });
+    if (!withSubtitles) {
+      return scrape.then((r) => ({ ...r, subtitles: [] as Subtitle[] }));
+    }
+    return Promise.all([scrape, this.getSubtitles(type, videoId)]).then(
+      ([r, subtitles]) => ({ ...r, subtitles })
+    );
   }
 
   async resolvePlayable(
