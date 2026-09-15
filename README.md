@@ -61,6 +61,7 @@ All optional. Defaults suit a household server.
 | `JELLYFIN_MAX_CATALOG_ITEMS` | `0` (off) | Cap on items per library for apps that crawl everything. |
 | `JELLYFIN_LOOKUP_CONCURRENCY` | `8` | How many items one list request resolves at once. |
 | `JELLYFIN_RELAY_TIMEOUT` | `15000` | Milliseconds to wait for an upstream image or subtitle to start responding. |
+| `JELLYFIN_IMAGE_RELAY_CONCURRENCY` | `32` | Max concurrent image relays. Over-limit requests queue briefly rather than redirect, so clients that don't follow artwork redirects (Infuse) never get a broken image. |
 
 ## Good to know
 

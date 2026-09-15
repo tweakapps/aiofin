@@ -19,11 +19,25 @@ import {
 } from '@aiostreams/core';
 import { jf, qi, qs, type JellyfinRequestContext, param } from './context.js';
 import { isRelayLoop } from './relay-target.js';
+import { createRelayGate } from './image-relay-gate.js';
 
 const logger = createLogger('jellyfin');
 const router: Router = Router({ mergeParams: true });
 
 const RELAY_OPTIONS = { ignoreRecursion: true } as const;
+
+// Bounds concurrent image relays so a cold home screen can't open unlimited
+// upstream sockets. Over-limit requests queue briefly, then proceed anyway
+// (fail-open) — Infuse does not follow artwork redirects, so an image
+// request must never be turned into a redirect or an error by this gate.
+const IMAGE_RELAY_LIMIT =
+  Number(process.env.JELLYFIN_IMAGE_RELAY_CONCURRENCY) || 32;
+const IMAGE_RELAY_MAX_WAIT_MS =
+  Number(process.env.JELLYFIN_IMAGE_RELAY_MAX_WAIT_MS) || 5000;
+const imageRelayGate = createRelayGate(
+  IMAGE_RELAY_LIMIT,
+  IMAGE_RELAY_MAX_WAIT_MS
+);
 
 let selfOriginsMemo: Set<string> | null = null;
 function selfOrigins(): Set<string> {
@@ -605,6 +619,7 @@ router.get(
     // Jellyfin clients (Infuse tvOS/iOS verified 2026-09-09) do NOT follow
     // redirects for artwork, so public URLs are relayed too — but already
     // size-rewritten by imageUrlFor(), which keeps the transfer small.
+    const release = await imageRelayGate.acquire();
     try {
       const headers: Record<string, string> = {};
       const inm = req.headers['if-none-match'];
@@ -654,6 +669,8 @@ router.get(
       );
       if (res.headersSent) return;
       res.status(404).end();
+    } finally {
+      release();
     }
   }
 );
