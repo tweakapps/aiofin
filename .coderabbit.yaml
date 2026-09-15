@@ -1,0 +1,58 @@
+# CodeRabbit configuration — https://docs.coderabbit.ai/reference/configuration
+# AioFin is the Jellyfin compatibility layer added on top of a fork of
+# Viren070/AIOStreams. Reviews should focus on the Jellyfin layer and our own
+# patches, not the large upstream codebase we inherit unchanged.
+language: en-US
+early_access: false
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - release
+      - main
+  # Skip generated output and vendored/lock files; review source only.
+  path_filters:
+    - "!**/dist/**"
+    - "!**/build/**"
+    - "!**/*.min.js"
+    - "!**/pnpm-lock.yaml"
+    - "!**/*.bak-*"
+  path_instructions:
+    - path: "packages/core/src/jellyfin/**"
+      instructions: >-
+        This is the Jellyfin compatibility layer. Hard invariants — flag any change
+        that breaks them, and do NOT suggest "simplifying" them: (1) list items must
+        carry TWO placeholder media sources; reducing to one removes Infuse Direct's
+        version picker. (2) buildMediaSource appends a display-only trailing segment
+        to the playback URL Path via withPlaybackDisplaySegment; it must NEVER modify
+        or drop the existing :filename segment, and must never mutate stream.url.
+        (3) Direct-play only, no transcoding. (4) IDs are persisted to the DB by
+        design, not held only in memory.
+    - path: "packages/server/src/routes/jellyfin/**"
+      instructions: >-
+        Server routes for the Jellyfin layer. The image handler RELAYS every image
+        on purpose because Infuse does not follow artwork redirects — do not suggest
+        replacing the relay with a 302 redirect. The image-relay gate must stay
+        fail-open (queue then proceed, never block or error an image). The owned
+        playback URL shape is
+        /api/v1/debrid/playback/:auth/:fallbackKey/:fileInfo/:metadataId/:filename[/:displayName];
+        the :filename segment is load-bearing (file resolve inside packs + failover
+        lock key). Watch out for real bugs: error handling, cache-key collisions,
+        wrong season/episode mapping, and per-request cost (extra upstream calls).
+    - path: "packages/core/src/debrid/utils.ts"
+      instructions: >-
+        withPlaybackDisplaySegment / generatePlaybackUrl / setPlaybackFallbackKey /
+        the failover helpers live here. The playback-URL segment order and count are
+        a contract shared with the server route and play-chain; flag anything that
+        changes segment positions or breaks parsePlaybackUrl.
+
+chat:
+  auto_reply: true
