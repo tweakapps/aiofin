@@ -3,7 +3,7 @@
 <p align="center"><strong>Your AIOStreams profile, served as a Jellyfin server.</strong></p>
 
 <p align="center">
-  <a href="https://github.com/tweakapps/aiofin/releases"><img src="https://img.shields.io/github/v/release/tweakapps/aiofin?filter=jf-v*&label=release&style=flat-square" alt="Latest release"></a>
+  <a href="https://github.com/tweakapps/aiofin/releases"><img src="https://img.shields.io/github/v/release/tweakapps/aiofin?filter=aiofin-v*&label=release&style=flat-square" alt="Latest release"></a>
   <a href="https://github.com/tweakapps/aiofin/pkgs/container/aiofin"><img src="https://img.shields.io/badge/ghcr.io-aiofin-blue?style=flat-square&logo=docker" alt="Docker image"></a>
   <a href="https://github.com/sponsors/tweakapps"><img src="https://img.shields.io/badge/%E2%99%A5_sponsor-tweakapps-db61a2?style=flat-square" alt="Sponsor"></a>
 </p>
@@ -31,7 +31,7 @@ Use the image in place of `ghcr.io/viren070/aiostreams` and keep your existing e
 ```yaml
 services:
   aiostreams:
-    image: ghcr.io/tweakapps/aiofin:jf-v2.34.0-9   # see Releases for the latest
+    image: ghcr.io/tweakapps/aiofin:aiofin-v2.34.0-15   # see Releases for the latest
     environment:
       - ENABLE_JELLYFIN_API=true
       # ...your normal AIOStreams settings
