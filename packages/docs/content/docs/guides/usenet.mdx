@@ -435,6 +435,13 @@ You are not limited to a single Newznab addon: add it once **per indexer**, each
 
 If you already manage your indexers through **NZBHydra2** or **Prowlarr**, their addons connect all of them at once — but be aware their NZB-grab behaviour differs; see [Indexer Managers](#indexer-managers).
 
+### Choose Which Service Each Addon Uses
+
+Each of these addons has a **Services** option. Left empty, AIOStreams configures the addon with _every_ enabled service it supports — including services you added for something else entirely. Two cases in particular:
+
+- **Easynews Search** takes your credentials from the Easynews service, so that service has to be configured — but its results can also be played by the NNTP services. Left empty, the addon is configured with Easynews _and_ every NNTP service you have; if you want its results to play through your NNTP service, say so explicitly. (Any service other than Easynews also needs the addon's AIOStreams Auth option — see [Using Easynews Results with Other Services](#using-easynews-results-with-other-services).)
+- **TorBox** is a debrid service as well as a Usenet one, so if you have it enabled for your debrid addons, Newznab/NZBHydra2/Prowlarr will use it for Usenet too. That only works on a TorBox **Pro** plan — without one, those results either error when fetched or hand your player an error video on playback. It also slows searches down, since the results then have to be checked against TorBox's API for cached availability. Set Services to just your NNTP service (e.g. AIOStreams) so these addons never try TorBox.
+
 ## 4. Make It Resilient: Failover
 
 Missing articles are the most common way a Usenet stream fails to play — and normally that means a "Something went wrong" error video. **Failover** fixes this: when the result you clicked fails, AIOStreams automatically tries the next result in your sorted list and redirects your player there instead, so playback works instead of failing.

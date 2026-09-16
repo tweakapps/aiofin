@@ -231,6 +231,8 @@ In Sonarr or Radarr: **Settings → Download Clients → + → SABnzbd**.
 
 Press **Test**. A green tick means the API, the category and the paths all line up.
 
+The category has to be one AIOStreams advertises. `tv`, `movies`, `audio`, `software`, `sonarr` and `radarr` always are, as is every category listed on an instance row. See [running several instances](#running-several-sonarr-or-radarr-instances) if you need a name of your own.
+
 <Callout type="info">
   Leave the arr's Username and Password fields empty — the API Key field is the
   credential.
@@ -244,7 +246,7 @@ Press **Test**. A green tick means the API, the category and the paths all line 
 
 So far the arrs know about AIOStreams. This is the other direction, and it is what makes the library self-maintaining.
 
-**Settings → Sonarr / Radarr → Sonarr / Radarr instances** (`ARR_INSTANCES`): add one row per arr, with its URL as AIOStreams sees it (e.g. `http://sonarr:8989`) and its API key from the arr's **Settings → General**.
+**Settings → Sonarr / Radarr → Sonarr / Radarr instances** (`ARR_INSTANCES`): add one row per arr, with its URL as AIOStreams sees it (e.g. `http://sonarr:8989`) and its API key from the arr's **Settings → General**. **Categories** is optional; set it when you run the same arr more than once (see [below](#running-several-sonarr-or-radarr-instances)).
 
 With an instance linked, AIOStreams can:
 
@@ -272,6 +274,19 @@ Almost every failed import comes down to one of these.
 </Step>
 
 </Steps>
+
+## Running several Sonarr or Radarr instances
+
+A common setup is one arr per quality or library: `radarr`, `radarr4k` and `radarranime`, or Sonarr plus a 4K Sonarr. They can all share one AIOStreams and one mount. What keeps them apart is the download-client **category**, because an arr only shows queue and history items whose category matches its own. Give them all the same category and every instance sees every other instance's downloads.
+
+Do it in this order:
+
+1. **In AIOStreams**, add one instance row per arr under **Settings → Sonarr / Radarr**, and put that arr's category in **Categories** (one row: `radarr4k`).
+2. **In each arr**, add the SABnzbd download client with the matching category.
+
+That order matters: a category is only offered to the arr once AIOStreams knows about it, and an arr refuses to save a download client whose category it cannot find. Saving the instance row also creates the category's folder under `completed/` straight away, so the arr's **Test** and its path health check both pass before you have grabbed anything.
+
+The names must match character for character, including case. `Radarr4K` in the arr and `radarr4k` in AIOStreams are two different categories, and you will get two folders.
 
 ## A full Docker setup
 
@@ -455,6 +470,8 @@ The share has three trees, all read-only. Paths are shown as WebDAV URLs; under 
 | `/webdav/usenet/content/<category>/<release>/`   | Everything in your library to browse, laid out as the NZB was. |
 | `/webdav/usenet/by-id/<hash>/<index>/<file>`     | The stable address every symlink points at. Never changes.     |
 
+`completed/` holds a folder for every category AIOStreams advertises, whether or not anything has been grabbed into it. Sonarr and Radarr stat their own category's folder and report a health error when it is missing, so the empty ones are doing a job.
+
 ### When the arr removes a download
 
 Importing a symlink means creating it at the destination and unlinking the source, so the arr deletes files out of `completed/` as it goes. AIOStreams treats that as "the arr has taken this file", not "delete the release": the entry disappears from the completed folder and the client's history, but stays under `by-id/`, so the symlinks already in your library keep working.
@@ -562,7 +579,9 @@ rclone mount aiostreams: Z: --links --read-only --network-mode
 
 ## Troubleshooting
 
-**Test fails in the arr.** Check the URL Base is `/api/v1/sabnzbd` and the API Key is `username:password`. If the arr complains about the category, make sure the category folder is not set to something ending in `*` on its side.
+**Test fails in the arr.** Check the URL Base is `/api/v1/sabnzbd` and the API Key is `username:password`. If the arr complains about the category, make sure the category folder is not set to something ending in `*` on its side. `Category does not exist` means the category is not one AIOStreams advertises: use one of the built-in names or list it on the instance row first, spelt identically.
+
+**Health error: "places downloads in `.../completed/<category>` but this directory does not appear to exist".** The arr stats its category's folder. Every advertised category has one, so check `ls /mnt/aiostreams/usenet/completed/` inside the arr's container: if the folder is missing, the category is not one AIOStreams knows about, and adding it to the instance row creates it. If it is there and the arr still complains, its view of the mount is stale: lower rclone's `--dir-cache-time`, or run the arr's health check again. On older versions the folder only existed while a grab was sitting in it, so this error was normal before the first download and after the last import.
 
 **Downloads complete but never import.** Almost always the paths. Compare the arr's queue entry (its "Output Path") against what `ls /mnt/aiostreams/usenet/completed/` shows inside the arr's container. If they differ, fix the mount directory setting or add a Remote Path Mapping.
 

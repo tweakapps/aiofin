@@ -2,9 +2,9 @@
 
 AioFin (formerly AIOStreams-JF): the Jellyfin compatibility layer on top of upstream AIOStreams. Upstream's own changelog is in `CHANGELOG.md`. Releases are tagged `jf-v<upstream version>-<n>`; the matching Docker image is `ghcr.io/tweakapps/aiofin:<tag>` (multi-arch: amd64, arm64); `ghcr.io/tweakapps/aiofin:release` tracks the `release` branch. New releases are tagged `aiofin-v<upstream>-<n>`; the first nine kept their `jf-v2.34.0-<n>` tags.
 
-## Channels (2026-09-15)
+## aiofin-v2.34.1-1 — 2026-09-16
 
-Added a `nightly` channel alongside `release`: `ghcr.io/tweakapps/aiofin:nightly` (rolling) and `:nightly-YYYYMMDD` (pinnable) track upstream AIOStreams' development branch with the same Jellyfin layer. See the README's Channels section for details.
+- Rebased onto upstream AIOStreams **2.34.1**, which brings usenet playback-reliability fixes: the selected file's first article is warmed when a stream URL is minted (so playback resolves in milliseconds instead of a slow cold NZB inspect that could time the player out), articles are verified against their yEnc checksums, reads whose decoded bytes disagree with their metadata now fail cleanly, and unreadable articles are tracked per provider. Plus the rest of the 2.34.1 engine changes. The Jellyfin layer is unchanged.
 
 ## aiofin-v2.34.0-15 — 2026-09-15
 

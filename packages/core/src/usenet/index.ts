@@ -36,6 +36,7 @@ import {
   groupArchiveSets,
   openArchiveInner,
   rebuildArchiveStream,
+  deserializeArchiveLayout,
   FileOpener,
   ArchiveStreamLayout,
   type ArchiveInnerEntry,
@@ -634,8 +635,16 @@ export class UsenetEngine {
     }, ARCHIVE_INSPECT_TIMEOUT_MS);
     timer.unref?.();
 
-    const opener: FileOpener = (index, knownSize, memo) =>
-      this.openFile(nzb, nzb.files[index], ac.signal, knownSize, memo);
+    const opener: FileOpener = (index, knownSize, memo, exact) =>
+      this.openFile(
+        nzb,
+        nzb.files[index],
+        ac.signal,
+        knownSize,
+        memo,
+        undefined,
+        exact
+      );
     try {
       // Only EXACT sizes may seed archive volume offsets: a placeholder
       // (encoded-size) value shifts every later volume's mapping and the
@@ -645,6 +654,7 @@ export class UsenetEngine {
         index: f.index,
         filename: f.filename,
         size: f.sizeExact ? f.size : undefined,
+        inferred: f.sizeInferred || undefined,
         segments: nzb.files[f.index]?.segments.length,
         firstSegmentNumber: nzb.files[f.index]?.segments[0]?.number,
       }));
@@ -840,6 +850,47 @@ export class UsenetEngine {
         fileIndex,
       })
     );
+  }
+
+  /**
+   * Fetch the article a cold open of `target` waits on, through the open's
+   * own locate (a season-pack episode starts mid-volume). Fire-and-forget.
+   */
+  warmTarget(nzb: Nzb, target: { index?: number; layout?: unknown }): void {
+    let fileIndex = target.index;
+    let offset = 0;
+    let knownSize: number | undefined;
+    if (target.layout !== undefined) {
+      let layout: ArchiveStreamLayout | undefined;
+      try {
+        layout = deserializeArchiveLayout(target.layout);
+      } catch {
+        return;
+      }
+      // Nested sets and 7z entries carry no outer fragment to locate.
+      if (!layout || layout.nestedLevels.length > 0) return;
+      const first = layout.target.fragments?.[0];
+      if (!first) return;
+      let off = first.offset;
+      let vol = 0;
+      for (; vol < layout.memberSizes.length; vol++) {
+        const size = layout.memberSizes[vol];
+        if (size === undefined) return;
+        if (off < size) break;
+        off -= size;
+      }
+      if (vol >= layout.memberIndices.length) return;
+      fileIndex = layout.memberIndices[vol];
+      offset = off;
+      knownSize = layout.memberSizes[vol];
+    }
+    if (fileIndex === undefined) return;
+    const file = nzb.files[fileIndex];
+    if (!file || file.segments.length === 0) return;
+    this.touch();
+    void this.openFile(nzb, file, undefined, knownSize)
+      .then((stream) => stream.readAt(offset, 1))
+      .catch(() => undefined);
   }
 
   /**
@@ -1104,7 +1155,8 @@ export class UsenetEngine {
      * streams of the archive path never pad here; the window level owns
      * archive padding.
      */
-    holes?: { holeHooks?: HoleHooks; fileIndex: number }
+    holes?: { holeHooks?: HoleHooks; fileIndex: number },
+    exactSize?: boolean
   ): Promise<FileStream> {
     const stream = new FileStream(
       this.pool,
@@ -1112,6 +1164,7 @@ export class UsenetEngine {
         segments: file.segments,
         filename: file.filename,
         knownSize,
+        exactSize,
       },
       nzb.hash,
       this.options,

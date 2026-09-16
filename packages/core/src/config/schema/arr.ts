@@ -78,7 +78,10 @@ export const arrSchema = {
       env:
         'JSON array of `{ "id", "name", "type": "sonarr"|"radarr", "url", ' +
         '"apiKey", "enabled", "categories" }` objects. `categories` limits ' +
-        'the instance to those download-client categories; omit for any.',
+        'the instance to those download-client categories; omit for any. ' +
+        'Every listed category is advertised through the SABnzbd API and gets ' +
+        'a folder under `completed/`, so spell it exactly as the arr’s ' +
+        'download client does.',
     },
     env: 'ARR_INSTANCES',
     requiresRestart: false,
