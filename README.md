@@ -31,7 +31,7 @@ Use the image in place of `ghcr.io/viren070/aiostreams` and keep your existing e
 ```yaml
 services:
   aiostreams:
-    image: ghcr.io/tweakapps/aiofin:aiofin-v2.34.0-15   # see Releases for the latest
+    image: ghcr.io/tweakapps/aiofin:aiofin-v2.34.1-1   # see Releases for the latest
     environment:
       - ENABLE_JELLYFIN_API=true
       # ...your normal AIOStreams settings
