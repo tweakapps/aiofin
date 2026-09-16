@@ -290,7 +290,7 @@ export function ArrInstancesEditor() {
                 <StringListField
                   name={`${name}.${index}.categories`}
                   label="Categories"
-                  help="Download-client categories this instance owns. Leave empty for any."
+                  help="Download-client categories this instance owns, spelt exactly as in the arr. Each one is advertised over the SABnzbd API and gets a folder under `completed/`. Leave empty for any."
                 />
               </div>
             </div>

@@ -23,10 +23,12 @@ import {
 } from '../../shares/index.js';
 import { createHash } from 'node:crypto';
 import { appConfig } from '../../utils/index.js';
+import { subscribeToConfig } from '../../config/index.js';
 import { openUsenetStream, usenetStreamEtag } from './stream-session.js';
 import { libraryFileToken, libraryFileName, removeForArr } from './library.js';
 import { encodeUsenetStreamToken } from './tokens.js';
 import { stripNzbExt } from './naming.js';
+import { advertisedCategories } from './categories.js';
 
 /**
  * The usenet library as a share subtree, for whatever protocol serves it:
@@ -55,23 +57,36 @@ interface Projection {
   byHash: Map<string, UsenetLibraryEntry>;
   /** category ('' for none) -> job folder name -> entry */
   byCategory: Map<string, Map<string, UsenetLibraryEntry>>;
-  /** The `completed/` subset: download-client rows, same job names. */
+  /**
+   * The `completed/` subset: download-client rows, same job names, plus an
+   * empty map for every advertised category that has none.
+   */
   completed: Map<string, Map<string, UsenetLibraryEntry>>;
 }
 
 let cached: { at: number; value: Promise<Projection> } | undefined;
 /** Modified date of the synthetic folders, so cached listings expire. */
 let libraryChangedAt = new Date();
-usenetLibraryBus.on('change', () => {
+
+/** Drop the projection and tell mounted clients their listing is stale. */
+function treeChanged(...dirs: string[]): void {
   cached = undefined;
   libraryChangedAt = new Date();
+  invalidateShareDirs(...dirs);
+}
+
+usenetLibraryBus.on('change', () => {
   // A mounted client's listing is now stale, and the arr reads the mount
   // rather than us. The bus carries no payload, so whole-tree is as precise
   // as it gets.
-  invalidateShareDirs(
-    `${USENET_SHARE_ROOT}/completed`,
-    `${USENET_SHARE_ROOT}/content`
-  );
+  treeChanged(`${USENET_SHARE_ROOT}/completed`, `${USENET_SHARE_ROOT}/content`);
+});
+
+// An instance's categories decide which folders `completed/` exposes, so a
+// live edit has to reach the tree before the arr next stats one.
+subscribeToConfig(({ changed }) => {
+  if (!changed.has('arr.instances')) return;
+  treeChanged(`${USENET_SHARE_ROOT}/completed`);
 });
 
 function projection(): Promise<Projection> {
@@ -86,9 +101,11 @@ function projection(): Promise<Projection> {
 }
 
 async function buildProjection(): Promise<Projection> {
-  const entries = (
-    await UsenetLibraryRepository.listForTree({ statuses: TREE_STATUSES })
-  ).filter((e) => !!e.nzbUrl);
+  const [rows, advertised] = await Promise.all([
+    UsenetLibraryRepository.listForTree({ statuses: TREE_STATUSES }),
+    advertisedCategories(),
+  ]);
+  const entries = rows.filter((e) => !!e.nzbUrl);
   // by-id keeps hidden rows: the arr's imported links still point at them.
   const byHash = new Map(entries.map((e) => [e.nzbHash, e]));
   const grouped = new Map<string, UsenetLibraryEntry[]>();
@@ -108,6 +125,13 @@ async function buildProjection(): Promise<Projection> {
       [...jobs].filter(([, entry]) => entry.origin === 'sabnzbd')
     );
     if (arrJobs.size > 0) completed.set(category, arrJobs);
+  }
+  // Advertised categories are listed even when empty
+  for (const name of advertised) {
+    if (name === '*') continue;
+    const category = sanitizeShareName(name);
+    if (category && !completed.has(category))
+      completed.set(category, new Map());
   }
   return { byHash, byCategory, completed };
 }
@@ -641,9 +665,11 @@ function completedRoot(ctx: ShareContext): ShareCollection {
       ...categories.map((c) =>
         completedCategoryNode(c, completed.get(c)!, ctx)
       ),
-      ...[...(completed.get('') ?? [])].map(([name, entry]) =>
-        completedJobNode(COMPLETED, name, entry, ctx)
-      ),
+      // A category of the same name wins the lookup, so listing both would
+      // show a name that resolves to the other node.
+      ...[...(completed.get('') ?? [])]
+        .filter(([name]) => !completed.has(name))
+        .map(([name, entry]) => completedJobNode(COMPLETED, name, entry, ctx)),
     ];
   });
 }

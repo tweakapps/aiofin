@@ -19,7 +19,8 @@ import {
   censusShadowProgress,
 } from './census-shadow.js';
 import { arrConfigured } from '../../arr/index.js';
-import { completedJobPath } from './share-provider.js';
+import { completedJobPath, sanitizeShareName } from './share-provider.js';
+import { advertisedCategories } from './categories.js';
 import { nzoIdFor, hashFromNzoId } from './sabnzbd-ids.js';
 
 const logger = createLogger('usenet/sabnzbd');
@@ -495,31 +496,6 @@ async function buildGetFiles(value: string): Promise<SabnzbdResult> {
   };
 }
 
-/** Static base categories ∪ everything ever assigned, so *arr category checks pass. */
-async function allCategories(): Promise<string[]> {
-  const base = [
-    '*',
-    'movies',
-    'tv',
-    'audio',
-    'software',
-    'sonarr',
-    'radarr',
-    'lidarr',
-    'prowlarr',
-    'books',
-    'audiobooks',
-    'ebooks',
-    'readarr',
-    'Readarr',
-    'chaptarr',
-    'lazylibrarian',
-    'listenarr',
-  ];
-  const assigned = await UsenetLibraryRepository.distinctCategories();
-  return [...new Set([...base, ...assigned])];
-}
-
 function buildGetConfig(req: SabnzbdRequest, cats: string[]): SabnzbdResult {
   const providers = getUsenetProviders();
   const { mountDir, completeDir } = arrPaths();
@@ -548,14 +524,14 @@ function buildGetConfig(req: SabnzbdRequest, cats: string[]): SabnzbdResult {
         logging: {
           log_level: 1,
         },
-        // Category folders sit directly under complete_dir, as with SABnzbd's
-        // defaults; the arr appends `dir` to `complete_dir` itself.
+        // The arr appends `dir` to `complete_dir` and stats it, so it must be
+        // the folder the share lists, not the raw name. `*` has none.
         categories: cats.map((name, order) => ({
           name,
           order,
           pp: name === '*' ? '3' : '',
           script: name === '*' ? 'None' : 'Default',
-          dir: name === '*' ? '' : name,
+          dir: name === '*' ? '' : sanitizeShareName(name),
           newzbin: '',
           priority: name === '*' ? 0 : -100,
         })),
@@ -640,7 +616,8 @@ async function buildServerStats(): Promise<SabnzbdResult> {
       const server = (servers[key] ??= { daily: {} });
       server[window] = r.bytes;
       if (window === 'total') {
-        server.articles_tried = r.articles + r.errors + r.missing;
+        server.articles_tried =
+          r.articles + r.errors + r.missing + r.undecodable;
         server.articles_success = r.articles;
       }
     }
@@ -746,11 +723,11 @@ export async function handleSabnzbdRequest(
         if (!params.value) return sabError('expects a value');
         return await buildGetFiles(params.value);
       case 'get_cats':
-        return { payload: { categories: await allCategories() } };
+        return { payload: { categories: await advertisedCategories() } };
       case 'get_scripts':
         return { payload: { scripts: ['None'] } };
       case 'get_config':
-        return buildGetConfig(req, await allCategories());
+        return buildGetConfig(req, await advertisedCategories());
       case 'status':
       case 'fullstatus':
         return buildStatus();

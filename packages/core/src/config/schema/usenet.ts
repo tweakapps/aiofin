@@ -503,6 +503,21 @@ export const usenetSchema = {
     requiresRestart: false,
     secret: false,
   },
+  verifyArticleCrc: {
+    schema: z.boolean(),
+    default: true,
+    label: 'Verify article checksums',
+    description:
+      'Check every downloaded article against the checksum its poster wrote ' +
+      'into it, so a corrupt copy is treated like a missing one: another ' +
+      'provider is tried, and damage present on every provider is patched ' +
+      'over instead of playing as garbage. Basic size checks always run, so ' +
+      'this only controls the checksum — turn it off only for a release ' +
+      'whose poster wrote the wrong ones.',
+    env: 'USENET_VERIFY_ARTICLE_CRC',
+    requiresRestart: false,
+    secret: false,
+  },
   arrWaitForCensus: {
     schema: z.boolean(),
     default: false,

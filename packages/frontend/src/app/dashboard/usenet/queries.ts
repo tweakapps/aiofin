@@ -92,11 +92,13 @@ export interface UsenetProviderStatRow {
   bytes: number;
   errors: number;
   missing: number;
+  undecodable: number;
   avgLatencyMs: number | null;
   avgArticleMs: number;
   avgBytesPerSec: number;
   errorRate: number;
   missRate: number;
+  undecodableRate: number;
   articleShare: number;
   removed: boolean;
 }
@@ -107,6 +109,7 @@ export interface UsenetThroughputPoint {
   bytes: number;
   errors: number;
   missing: number;
+  undecodable: number;
   avgLatencyMs: number | null;
   avgBytesPerSec: number;
 }
@@ -141,6 +144,7 @@ export interface UsenetStatsOverview {
     bytes: number;
     errors: number;
     missing: number;
+    undecodable: number;
     avgLatencyMs: number | null;
     avgArticleMs: number;
     avgBytesPerSec: number;

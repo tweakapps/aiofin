@@ -41,15 +41,16 @@ export function classifyNoStreamable(content: NzbContent): {
       code: 'missing_on_providers',
     };
   }
-  // Articles present but not decodable (broken yEnc part headers, uuencode-era
-  // posts): name the real problem instead of "no streamable files".
+  // Articles present but not decodable (corrupt copies failing their checksum
+  // or size, broken yEnc part headers, uuencode-era posts): name the real
+  // problem instead of "no streamable files".
   const decodeFailed = content.files.filter(
     (f) => f.error === 'decode_failed'
   ).length;
   if (decodeFailed > 0 && decodeFailed * 2 >= total) {
     return {
       reason:
-        'Articles are malformed or not yEnc encoded: encoding not supported',
+        'Articles are corrupt, malformed or not yEnc encoded: cannot be decoded',
       code: 'unsupported_encoding',
     };
   }

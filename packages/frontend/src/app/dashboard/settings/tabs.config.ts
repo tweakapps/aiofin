@@ -251,6 +251,7 @@ export const TAB_MANIFEST: Record<string, Omit<TabDef, 'section'>> = {
           'usenet.verifyMode',
           'usenet.verifyBudgetMs',
           'usenet.verifyContent',
+          'usenet.verifyArticleCrc',
           'usenet.damagePolicy',
           'usenet.matroskaHoleFill',
           'usenet.censusShadowConcurrency',
