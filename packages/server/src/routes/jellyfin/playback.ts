@@ -762,7 +762,60 @@ const PROGRESS_MIN_WALL_MS = 60_000;
 const lastProgressWrite = new Map<string, { pos: number; at: number }>();
 const LAST_PROGRESS_MAX = 20_000;
 
+const completedSessions = new Map<string, number>();
+const progressQueues = new Map<string, Promise<void>>();
+const COMPLETED_SESSION_TTL_MS = 24 * 60 * 60_000;
+
+function sessionFrom(body: Record<string, unknown>, req: Request) {
+  const value =
+    body.PlaySessionId ?? body.playSessionId ?? qs(req, 'PlaySessionId');
+  return typeof value === 'string' && value.length > 0 && value.length <= 256
+    ? value
+    : undefined;
+}
+
 async function recordProgress(
+  ctx: JellyfinRequestContext,
+  itemId: string,
+  positionTicks: number | undefined,
+  event: 'start' | 'progress' | 'stop',
+  sessionId?: string
+) {
+  const key = JSON.stringify([ctx.uuid, itemId]);
+  const sessionKey = sessionId
+    ? JSON.stringify([ctx.uuid, itemId, ctx.client?.deviceId ?? '', sessionId])
+    : undefined;
+  const previous = progressQueues.get(key) ?? Promise.resolve();
+  const current = previous
+    .catch(() => {})
+    .then(async () => {
+      const now = Date.now();
+      for (const [id, expires] of completedSessions) {
+        if (expires > now) break;
+        completedSessions.delete(id);
+      }
+      if (sessionKey && (completedSessions.get(sessionKey) ?? 0) > now) return;
+      const completed = await writeProgress(ctx, itemId, positionTicks, event);
+      if (completed && sessionKey) {
+        completedSessions.delete(sessionKey);
+        completedSessions.set(
+          sessionKey,
+          Date.now() + COMPLETED_SESSION_TTL_MS
+        );
+        if (completedSessions.size > LAST_PROGRESS_MAX) {
+          completedSessions.delete(completedSessions.keys().next().value!);
+        }
+      }
+    });
+  progressQueues.set(key, current);
+  try {
+    await current;
+  } finally {
+    if (progressQueues.get(key) === current) progressQueues.delete(key);
+  }
+}
+
+async function writeProgress(
   ctx: JellyfinRequestContext,
   itemId: string,
   positionTicks: number | undefined,
@@ -815,7 +868,7 @@ async function recordProgress(
       incrementPlayCount: 'if-unplayed',
       lastPlayedAt: now,
     });
-    return;
+    return true;
   }
   await JellyfinRepository.upsertPlaystate(ctx.uuid, itemId, d, {
     positionTicks: pos,
@@ -835,7 +888,8 @@ router.post(
         ctx,
         id,
         ticksFrom(body, req, 'PositionTicks'),
-        'start'
+        'start',
+        sessionFrom(body, req)
       );
     res.status(204).end();
   })
@@ -850,7 +904,8 @@ router.post(
         ctx,
         id,
         ticksFrom(body, req, 'PositionTicks'),
-        'progress'
+        'progress',
+        sessionFrom(body, req)
       );
     res.status(204).end();
   })
@@ -865,7 +920,8 @@ router.post(
         ctx,
         id,
         ticksFrom(body, req, 'PositionTicks'),
-        'stop'
+        'stop',
+        sessionFrom(body, req)
       );
     res.status(204).end();
   })
@@ -879,7 +935,8 @@ router.delete(
         ctx,
         id,
         ticksFrom({}, req, 'PositionTicks'),
-        'stop'
+        'stop',
+        sessionFrom({}, req)
       );
     res.status(204).end();
   })

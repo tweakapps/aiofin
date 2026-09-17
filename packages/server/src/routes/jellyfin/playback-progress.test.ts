@@ -84,7 +84,8 @@ let baseUrl: string;
 async function send(
   event: keyof typeof PATHS,
   position?: unknown,
-  profile = 'profile-a'
+  profile = 'profile-a',
+  session?: string
 ) {
   const response = await fetch(`${baseUrl}${PATHS[event]}`, {
     method: 'POST',
@@ -92,7 +93,11 @@ async function send(
       'content-type': 'application/json',
       'x-test-profile': profile,
     },
-    body: JSON.stringify({ ItemId: ITEM, PositionTicks: position }),
+    body: JSON.stringify({
+      ItemId: ITEM,
+      PositionTicks: position,
+      PlaySessionId: session,
+    }),
   });
   expect(response.status).toBe(204);
 }
@@ -163,6 +168,57 @@ afterEach(async () => {
 });
 
 describe('mounted Jellyfin playback progress', () => {
+  it('ignores delayed events from a completed session while allowing a new rewatch', async () => {
+    await send('start', 0, 'profile-a', 'session-a');
+    await send('progress', 950 * SECOND, 'profile-a', 'session-a');
+    await send('start', 0, 'profile-a', 'session-a');
+    await send('progress', 100 * SECOND, 'profile-a', 'session-a');
+    await send('stop', 100 * SECOND, 'profile-a', 'session-a');
+    expect(state()).toMatchObject({
+      played: true,
+      playCount: 1,
+      positionTicks: 0,
+    });
+    await send('start', 0, 'profile-a', 'session-b');
+    await send('progress', 200 * SECOND, 'profile-a', 'session-b');
+    await send('stop', 950 * SECOND, 'profile-a', 'session-a');
+    expect(state()).toMatchObject({
+      played: false,
+      playCount: 1,
+      positionTicks: 200 * SECOND,
+    });
+    await send('stop', 950 * SECOND, 'profile-a', 'session-b');
+    expect(state()).toMatchObject({
+      played: true,
+      playCount: 2,
+      positionTicks: 0,
+    });
+  });
+
+  it('serializes simultaneous completion and a delayed progress event', async () => {
+    await send('start', 0, 'profile-a', 'concurrent');
+    await Promise.all([
+      send('stop', 950 * SECOND, 'profile-a', 'concurrent'),
+      send('progress', 100 * SECOND, 'profile-a', 'concurrent'),
+      send('stop', 950 * SECOND, 'profile-a', 'concurrent'),
+    ]);
+    expect(state()).toMatchObject({
+      played: true,
+      playCount: 1,
+      positionTicks: 0,
+    });
+  });
+
+  it('does not share completed session markers between profiles', async () => {
+    await send('stop', 950 * SECOND, 'profile-a', 'shared');
+    await send('progress', 200 * SECOND, 'profile-b', 'shared');
+    expect(state('profile-b')).toMatchObject({
+      played: false,
+      playCount: 0,
+      positionTicks: 200 * SECOND,
+    });
+  });
+
   it.each(['post', 'delete'])(
     'preserves completion after progress and a missing-position %s stop',
     async (method) => {
