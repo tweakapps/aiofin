@@ -76,7 +76,8 @@ async function snapshotPages(
   scope: { search?: string; genre?: string },
   parentId: string | undefined,
   what: string,
-  target: number
+  target: number,
+  full: boolean
 ) {
   let cache = snapshots.get(ctx.service);
   if (!cache) snapshots.set(ctx.service, (cache = new Map()));
@@ -140,13 +141,19 @@ async function snapshotPages(
       0
     );
     if (result.previews.length < target) {
-      while (calls < SNAPSHOT_PAGE_BUDGET && stored < SNAPSHOT_ITEM_LIMIT) {
+      const maxCalls = full
+        ? SNAPSHOT_PAGE_BUDGET
+        : Math.max(
+            SNAPSHOT_PAGE_BUDGET,
+            Math.ceil(target / SNAPSHOT_PAGE_SIZE) + current.catalogs.length
+          );
+      while (calls < maxCalls && stored < SNAPSHOT_ITEM_LIMIT) {
         const pending = current.catalogs
           .filter((entry) => !entry.done)
           .slice(
             0,
             Math.min(
-              SNAPSHOT_PAGE_BUDGET - calls,
+              maxCalls - calls,
               Math.max(1, appConfig.api.jellyfinLookupConcurrency)
             )
           );
@@ -554,10 +561,9 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
       scope,
       parentId,
       what,
-      needsFullSnapshot ? Infinity : startIndex + limit
+      needsFullSnapshot ? SNAPSHOT_ITEM_LIMIT : startIndex + limit,
+      needsFullSnapshot
     );
-    if (needsFullSnapshot && (!snapshot.complete || snapshot.failed))
-      return null;
     const projections = snapshot.previews.map((preview, index) => {
       const runtime = preview.runtime;
       const ticks = parseRuntimeToTicks(
@@ -588,7 +594,6 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
       req,
       applyUserFilters(req, filterByType(projections, types))
     );
-    if (!snapshot.complete && selected.length < startIndex + limit) return null;
     const pageIndices = selected
       .slice(startIndex, startIndex + limit)
       .map((item) => item.index as number);
@@ -601,7 +606,9 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     });
     return list(
       built,
-      selected.length + (snapshot.complete ? 0 : 1),
+      snapshot.complete
+        ? selected.length
+        : Math.max(selected.length, startIndex + limit) + 1,
       startIndex
     );
   };
@@ -645,14 +652,7 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
 router.get(
   ['/Users/:userId/Items', '/Items'],
   jf(async (req, res, ctx) => {
-    const result = await handleItemsQuery(req, ctx);
-    if (!result) {
-      res.set('Retry-After', '1').status(503).json({
-        Message: 'Library snapshot is not ready. Retry the request.',
-      });
-      return;
-    }
-    res.json(result);
+    res.json(await handleItemsQuery(req, ctx));
   })
 );
 

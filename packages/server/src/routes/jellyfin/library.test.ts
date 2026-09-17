@@ -652,18 +652,11 @@ describe('mounted bounded library browsing', () => {
   it('continues beyond a cold request budget without dropping catalogs', async () => {
     for (let n = 0; n < 60; n++) catalog(`empty-${n}`, []);
     catalog('last', ['Reachable']);
-    for (let n = 0; n < 3; n++) {
-      const response = await request('/Items', { Recursive: true });
-      expect(response.status).toBe(503);
-      expect(response.headers.get('Retry-After')).toBe('1');
-      expect(await response.json()).toEqual({
-        Message: 'Library snapshot is not ready. Retry the request.',
-      });
-      expect(mocks.getCatalogPage).toHaveBeenCalledTimes(16 * (n + 1));
-    }
     const body = await get('/Items', { Recursive: true });
     expect(body.Items[0].Name).toBe('Reachable');
     expect(body.TotalRecordCount).toBe(1);
+    expect(mocks.getCatalogPage).toHaveBeenCalledTimes(61);
+    await get('/Items', { Recursive: true });
     expect(mocks.getCatalogPage).toHaveBeenCalledTimes(61);
   });
 
@@ -693,7 +686,7 @@ describe('mounted bounded library browsing', () => {
   );
 
   it.each(['view', 'recursive', 'search'])(
-    'returns retriable 503 until the full sorted %s snapshot is ready',
+    'serves a best-effort sorted %s snapshot when the budget is exhausted',
     async (mode) => {
       api.jellyfinMaxCatalogItems = 0;
       const ParentId = catalog(
@@ -709,36 +702,41 @@ describe('mounted bounded library browsing', () => {
             ? { SearchTerm: 'match' }
             : { Recursive: true };
       const query = { ...scope, SortBy: 'SortName', Limit: 1 };
-      const response = await request('/Items', query);
-      expect(response.status).toBe(503);
-      expect(response.headers.get('Retry-After')).toBe('1');
-      expect(await response.json()).toEqual({
-        Message: 'Library snapshot is not ready. Retry the request.',
-      });
-      expect(mocks.getCatalogPage).toHaveBeenCalledTimes(16);
       const body = await get('/Items', query);
-      expect(body.Items[0].Name).toBe('0001');
-      expect(body.TotalRecordCount).toBe(4300);
-      expect(mocks.getCatalogPage).toHaveBeenCalledTimes(17);
+      expect(body.Items).toHaveLength(1);
+      expect(body.TotalRecordCount).toBeGreaterThan(1);
+      const afterFirst = mocks.getCatalogPage.mock.calls.length;
+      const page = await get('/Items', {
+        ...scope,
+        SortBy: 'SortName',
+        Limit: 50,
+      });
+      expect(page.Items).toHaveLength(50);
+      const names = page.Items.map((item) => item.Name);
+      expect([...names].sort()).toEqual(names);
+      expect(mocks.getCatalogPage.mock.calls.length).toBeGreaterThan(
+        afterFirst
+      );
+      const warmed = await get('/Items', query);
+      expect(mocks.getCatalogPage.mock.calls.length).toBeGreaterThan(
+        afterFirst
+      );
+      expect(warmed.Items[0].Name).toBe(page.Items[0].Name);
     }
   );
 
-  it('retries a cold deep offset instead of returning a false empty page', async () => {
+  it('serves the materialized boundary for a cold deep offset', async () => {
     api.jellyfinMaxCatalogItems = 0;
     const ParentId = catalog(
       'deep',
       Array.from({ length: 6000 }, (_, n) => `Movie ${n}`)
     );
     const query = { ParentId, StartIndex: 4500, Limit: 10 };
-    const response = await request('/Items', query);
-    expect(response.status).toBe(503);
-    expect(response.headers.get('Retry-After')).toBe('1');
-    expect(mocks.getCatalogPage).toHaveBeenCalledTimes(16);
     const body = await get('/Items', query);
     expect(body.Items).toHaveLength(10);
     expect(body.Items[0].Name).toBe('Movie 4500');
     expect(body.TotalRecordCount).toBeGreaterThan(4510);
-    expect(mocks.getCatalogPage).toHaveBeenCalledTimes(18);
+    expect(mocks.getCatalogPage).toHaveBeenCalledTimes(Math.ceil(4510 / 256));
   });
 
   it('fills a page across a partial prefix before advertising continuation', async () => {
@@ -756,9 +754,9 @@ describe('mounted bounded library browsing', () => {
 
   it('bounds recursive catalog fanout', async () => {
     for (let n = 0; n < 60; n++) catalog(`empty-${n}`, []);
-    const response = await request('/Items', { Recursive: true });
-    expect(response.status).toBe(503);
-    expect(response.headers.get('Retry-After')).toBe('1');
-    expect(mocks.getCatalogPage).toHaveBeenCalledTimes(16);
+    const body = await get('/Items', { Recursive: true });
+    expect(body.Items).toEqual([]);
+    expect(body.TotalRecordCount).toBe(0);
+    expect(mocks.getCatalogPage).toHaveBeenCalledTimes(60);
   });
 });
