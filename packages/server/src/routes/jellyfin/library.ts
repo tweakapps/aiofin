@@ -46,6 +46,46 @@ const logger = createLogger('jellyfin');
 const router: Router = Router({ mergeParams: true });
 
 const MAX_MEDIA_SOURCES = 50;
+const SNAPSHOT_MAX_ITEMS = 1000;
+const SNAPSHOT_MAX_CATALOGS = 50;
+
+async function snapshotPages(
+  ctx: JellyfinRequestContext,
+  catalogs: Awaited<ReturnType<JellyfinService['getCatalogs']>>,
+  scope: { search?: string; genre?: string },
+  parentId: string | undefined,
+  what: string
+): Promise<{ previews: MetaPreview[]; parents: (string | undefined)[] }> {
+  const previews: MetaPreview[] = [];
+  const parents: (string | undefined)[] = [];
+  const seen = new Set<string>();
+  for (const catalog of catalogs) {
+    if (previews.length >= SNAPSHOT_MAX_ITEMS) break;
+    const page = await safeCatalogPage(
+      ctx,
+      catalog,
+      {
+        startIndex: 0,
+        limit: SNAPSHOT_MAX_ITEMS - previews.length,
+        ...scope,
+      },
+      what
+    );
+    const viewId = encodeJellyfinId({
+      k: 'view',
+      t: catalog.type,
+      c: catalog.id,
+    });
+    for (const preview of page.items) {
+      const key = `${preview.type}|${preview.id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      previews.push(preview);
+      parents.push(parentId ?? viewId);
+    }
+  }
+  return { previews, parents };
+}
 
 async function safeCatalogPage(
   ctx: JellyfinRequestContext,
@@ -328,7 +368,13 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     return list(filterByType(deduped, types), deduped.length, 0);
   }
 
-  if (wantsFavorites || wantsPlayed || wantsResumable) {
+  if (
+    (wantsFavorites || wantsPlayed || wantsResumable) &&
+    !parentId &&
+    !searchTerm &&
+    !genres.length &&
+    !genreIds.length
+  ) {
     const kinds = types
       ? [...types].map((t) =>
           t === 'movie'
@@ -369,38 +415,45 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
     const catalog = await ctx.service.findCatalog(catalogDesc.t, catalogDesc.c);
     if (!catalog) return list([], 0, startIndex);
     const g = parent?.k === 'genre' ? parent.g : genre;
-    let rawOffset = startIndex;
-    let filtered: JellyfinItem[] = [];
-    let hasMore = false;
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const page = await safeCatalogPage(
-        ctx,
-        catalog,
-        { startIndex: rawOffset, limit, search: searchTerm, genre: g },
-        'Items by view'
-      );
-      hasMore = page.hasMore;
-      const items = await itemsFromPreviews(ctx, page.items, parentId);
-      const pageFiltered = applyUserFilters(req, filterByType(items, types));
-      filtered = filtered.concat(pageFiltered);
-      rawOffset += page.items.length;
-      if (filtered.length >= limit || !page.hasMore) break;
-    }
-    filtered = applySort(req, filtered).slice(0, limit);
-    const total = hasMore
-      ? startIndex + filtered.length + limit
-      : startIndex + filtered.length;
-    return list(filtered, total, startIndex);
+    const { previews } = await snapshotPages(
+      ctx,
+      [catalog],
+      { search: searchTerm, genre: g },
+      parentId,
+      'Items by view'
+    );
+    const items = await itemsFromPreviews(ctx, previews, parentId);
+    const filtered = applySort(
+      req,
+      applyUserFilters(req, filterByType(items, types))
+    );
+    return list(
+      filtered.slice(startIndex, startIndex + limit),
+      filtered.length,
+      startIndex
+    );
   }
 
   if (searchTerm) {
-    const previews = await ctx.service.search(
-      searchTerm,
-      stremioTypesFor(types),
-      startIndex + limit
+    const catalogs = (await ctx.service.getCatalogs()).filter((c) => {
+      const wanted = stremioTypesFor(types);
+      return (
+        (c.extra ?? []).some((e) => e.name === 'search') &&
+        (!wanted || wanted.includes(c.type))
+      );
+    });
+    const { previews } = await snapshotPages(
+      ctx,
+      catalogs.slice(0, SNAPSHOT_MAX_CATALOGS),
+      { search: searchTerm },
+      parentId,
+      'Items by search'
     );
     const items = await itemsFromPreviews(ctx, previews);
-    const filtered = filterByType(items, types);
+    const filtered = applySort(
+      req,
+      applyUserFilters(req, filterByType(items, types))
+    );
     return list(
       filtered.slice(startIndex, startIndex + limit),
       filtered.length,
@@ -415,41 +468,27 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
   if (!parentId && recursive) {
     const catalogs = await ctx.service.getCatalogs();
     const wanted = stremioTypesFor(types);
-    const usable = catalogs.filter((c) => !wanted || wanted.includes(c.type));
-    const items: JellyfinItem[] = [];
-    let offset = 0;
-    for (const catalog of usable) {
-      if (items.length >= limit) break;
-      const page = await safeCatalogPage(
-        ctx,
-        catalog,
-        {
-          startIndex: Math.max(0, startIndex - offset),
-          limit: limit - items.length + Math.max(0, offset - startIndex),
-        },
-        'Items recursive'
-      );
-      const viewId = encodeJellyfinId({
-        k: 'view',
-        t: catalog.type,
-        c: catalog.id,
-      });
-      const built = await itemsFromPreviews(ctx, page.items, viewId);
-      for (const it of built) {
-        if (offset >= startIndex && items.length < limit) items.push(it);
-        offset++;
-      }
-      if (page.hasMore && items.length >= limit) {
-        return list(
-          filterByType(items, types),
-          startIndex + items.length + limit,
-          startIndex
-        );
-      }
+    const usable = catalogs
+      .filter((c) => !wanted || wanted.includes(c.type))
+      .slice(0, SNAPSHOT_MAX_CATALOGS);
+    const { previews, parents } = await snapshotPages(
+      ctx,
+      usable,
+      {},
+      undefined,
+      'Items recursive'
+    );
+    const built = await itemsFromPreviews(ctx, previews);
+    for (let i = 0; i < built.length; i++) {
+      if (parents[i]) (built[i] as { ParentId?: string }).ParentId = parents[i];
     }
+    const items = applySort(
+      req,
+      applyUserFilters(req, filterByType(built, types))
+    );
     return list(
-      filterByType(items, types),
-      startIndex + items.length,
+      items.slice(startIndex, startIndex + limit),
+      items.length,
       startIndex
     );
   }
@@ -551,19 +590,21 @@ router.get(
   jf(async (req, res, ctx) => {
     const limit = Math.min(Math.max(1, qi(req, 'Limit', 12)), 50);
     const seriesId = qs(req, 'SeriesId');
+    const startIndex = Math.max(0, qi(req, 'StartIndex', 0));
+    const enableResumable = qb(req, 'EnableResumable') ?? true;
     const items: JellyfinItem[] = [];
     if (seriesId) {
       const d = await decodeJellyfinId(seriesId);
       if (d && (d.k === 'series' || d.k === 'movie')) {
         const rows = await JellyfinRepository.listForSeries(ctx.uuid, d.t, d.i);
         rows.sort((a, b) => b.updatedAt - a.updatedAt);
-        const next = await nextUpForSeries(ctx, d, rows[0]);
+        const next = await nextUpForSeries(ctx, d, rows[0], enableResumable);
         if (next) items.push(next);
       }
     } else {
       const recent = await JellyfinRepository.listRecentEpisodesBySeries(
         ctx.uuid,
-        limit * 2
+        SNAPSHOT_MAX_ITEMS
       );
       const candidates = recent.filter(
         (row): row is typeof row & { payload: { t: string; i: string } } =>
@@ -575,17 +616,19 @@ router.get(
           const next = await nextUpForSeries(
             ctx,
             { t: row.payload.t, i: row.payload.i },
-            row
+            row,
+            enableResumable
           );
           return next && !(next.UserData as { Played: boolean }).Played
             ? [next]
             : [];
         },
-        { target: limit, what: 'series in Next Up' }
+        { what: 'series in Next Up' }
       );
-      items.push(...nexts.slice(0, limit));
+      items.push(...nexts);
     }
-    res.json(list(items, items.length, 0));
+    const page = items.slice(startIndex, startIndex + limit);
+    res.json(list(page, items.length, startIndex));
   })
 );
 
@@ -670,7 +713,10 @@ async function sendItem(
   const alwaysAttachSources =
     (descriptor.k === 'movie' || descriptor.k === 'episode') &&
     (appConfig.api.jellyfinAlwaysAttachSources ||
-      clientMatches(ctx.client.name, appConfig.api.jellyfinAttachSourcesClients));
+      clientMatches(
+        ctx.client.name,
+        appConfig.api.jellyfinAttachSourcesClients
+      ));
   const target = !(wantsSources || alwaysAttachSources)
     ? null
     : descriptor.k === 'movie'
@@ -723,7 +769,7 @@ async function sendItem(
     } catch (e) {
       logger.error(
         { err: e instanceof Error ? e.message : String(e), itemId: item.Id },
-        "buildMediaSources failed for item"
+        'buildMediaSources failed for item'
       );
     }
   }
@@ -1020,13 +1066,10 @@ router.get(
   '/Genres/:name',
   jf(async (req, res, ctx) => {
     res.json(
-      stripInternal(
-        buildGenreItem(ctx.build, 'movie', '', param(req, 'name'))
-      )
+      stripInternal(buildGenreItem(ctx.build, 'movie', '', param(req, 'name')))
     );
   })
 );
-
 
 router.get(
   '/Search/Hints',

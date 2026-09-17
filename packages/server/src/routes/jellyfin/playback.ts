@@ -482,8 +482,7 @@ function sizeImageUrl(
     requestedWidth != null
       ? (sizes.find((s) => s.px >= requestedWidth) ?? sizes[sizes.length - 1])
       : (sizes.find(
-          (s) =>
-            s.name === (isPerson ? 'w185' : isBackdrop ? 'w1280' : 'w500')
+          (s) => s.name === (isPerson ? 'w185' : isBackdrop ? 'w1280' : 'w500')
         ) ?? sizes[sizes.length - 1]);
   u.pathname = `${match[1]}${target.name}${match[3]}`;
   return u.toString();
@@ -736,9 +735,13 @@ function ticksFrom(
     body[key] ??
     body[key.charAt(0).toLowerCase() + key.slice(1)] ??
     qs(req, key);
-  if (v == null || v === '') return undefined;
+  if (
+    (typeof v !== 'number' && typeof v !== 'string') ||
+    (typeof v === 'string' && v.trim() === '')
+  )
+    return undefined;
   const n = Number(v);
-  return Number.isFinite(n) ? n : undefined;
+  return Number.isFinite(n) && n >= 0 ? n : undefined;
 }
 
 function idFrom(
@@ -767,8 +770,19 @@ async function recordProgress(
 ) {
   const d = await decodeJellyfinId(itemId);
   if (!d || (d.k !== 'movie' && d.k !== 'episode')) return;
+  const runtimeTicks = (await runtimeTicksFor(ctx, d)) ?? 0;
+  const existing = await JellyfinRepository.getPlaystate(ctx.uuid, itemId);
+  const rt = runtimeTicks || existing?.runtimeTicks || 0;
+  const pos = positionTicks ?? existing?.positionTicks ?? 0;
+  const finished =
+    (positionTicks == null && existing?.played === true) ||
+    (rt > 0 && pos >= rt * PLAYED_THRESHOLD);
   const throttleKey = `${ctx.uuid}:${itemId}`;
-  if (event === 'progress' && positionTicks != null) {
+  if (
+    event === 'progress' &&
+    positionTicks != null &&
+    finished === (existing?.played ?? false)
+  ) {
     const last = lastProgressWrite.get(throttleKey);
     if (
       last &&
@@ -783,26 +797,22 @@ async function recordProgress(
     pos: positionTicks ?? 0,
     at: Date.now(),
   });
-  const runtimeTicks = (await runtimeTicksFor(ctx, d)) ?? 0;
-  const existing = await JellyfinRepository.getPlaystate(ctx.uuid, itemId);
-  const rt = runtimeTicks || existing?.runtimeTicks || 0;
-  const pos = positionTicks ?? existing?.positionTicks ?? 0;
   const now = Date.now();
   if (event === 'start') {
     await JellyfinRepository.upsertPlaystate(ctx.uuid, itemId, d, {
       runtimeTicks: rt || undefined,
       positionTicks: positionTicks ?? undefined,
+      played: false,
       lastPlayedAt: now,
     });
     return;
   }
-  const finished = rt > 0 && pos >= rt * PLAYED_THRESHOLD;
   if (finished) {
     await JellyfinRepository.upsertPlaystate(ctx.uuid, itemId, d, {
       positionTicks: 0,
       runtimeTicks: rt || undefined,
       played: true,
-      incrementPlayCount: event === 'stop' ? 'if-unplayed' : false,
+      incrementPlayCount: 'if-unplayed',
       lastPlayedAt: now,
     });
     return;

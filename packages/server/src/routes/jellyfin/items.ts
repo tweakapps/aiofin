@@ -164,7 +164,8 @@ export async function itemFromDescriptor(
         { ...base, type: d.t },
         { userData: opts.playstate, complete: !!meta }
       );
-      if (!opts.playstate && !opts.skipUserData) await attachUserData(ctx, [item]);
+      if (!opts.playstate && !opts.skipUserData)
+        await attachUserData(ctx, [item]);
       return item;
     }
     case 'season': {
@@ -313,7 +314,8 @@ export async function episodesForSeries(
 export async function nextUpForSeries(
   ctx: JellyfinRequestContext,
   d: { t: string; i: string },
-  last?: JellyfinPlaystateRow
+  last?: JellyfinPlaystateRow,
+  enableResumable = true
 ): Promise<JellyfinItem | null> {
   const res = await episodesForSeries(ctx, d);
   if (!res) return null;
@@ -321,16 +323,20 @@ export async function nextUpForSeries(
     (e) => e.LocationType !== 'Virtual' && (e.ParentIndexNumber as number) !== 0
   );
   if (!eps.length) return null;
+  const eligible = (e: JellyfinItem) => {
+    const ud = e.UserData as {
+      Played: boolean;
+      PlaybackPositionTicks: number;
+    };
+    return !ud.Played && (enableResumable || ud.PlaybackPositionTicks <= 0);
+  };
   if (last) {
     const idx = eps.findIndex((e) => e.Id === last.itemId);
     if (idx >= 0) {
-      const lastUd = eps[idx].UserData as {
-        Played: boolean;
-        PlaybackPositionTicks: number;
-      };
-      if (!lastUd.Played && lastUd.PlaybackPositionTicks > 0) return eps[idx];
-      return eps[idx + 1] ?? null;
+      const ud = eps[idx].UserData as { PlaybackPositionTicks: number };
+      if (eligible(eps[idx]) && ud.PlaybackPositionTicks > 0) return eps[idx];
+      return eps.slice(idx + 1).find(eligible) ?? null;
     }
   }
-  return eps.find((e) => !(e.UserData as { Played: boolean }).Played) ?? null;
+  return eps.find(eligible) ?? null;
 }

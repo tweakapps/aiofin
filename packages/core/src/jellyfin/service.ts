@@ -22,8 +22,6 @@ const logger = createLogger('jellyfin');
 
 type Catalog = NonNullable<Manifest['catalogs']>[number];
 
-const STREMIO_PAGE_GUESS = 100;
-
 const CATALOG_MEMO_TTL_MS = 60_000;
 const META_MEMO_TTL_MS = 5 * 60_000;
 const SUBTITLE_MEMO_TTL_MS = 5 * 60_000;
@@ -198,6 +196,8 @@ export class JellyfinService {
     let skip = 0;
     let hasMore = true;
     let guard = 0;
+    let repeated = false;
+    const pages = new Set<string>();
     while (offset < wantEnd && hasMore && guard++ < 50) {
       const extras = [...extrasBase];
       if (skip > 0) {
@@ -213,15 +213,25 @@ export class JellyfinService {
         hasMore = false;
         break;
       }
+      const signature = JSON.stringify(
+        page.map((item) => [item.type, item.id])
+      );
+      if (pages.has(signature)) {
+        repeated = true;
+        break;
+      }
+      pages.add(signature);
       for (const item of page) {
         if (offset >= opts.startIndex && offset < wantEnd) out.push(item);
         offset++;
       }
       skip += page.length;
-      if (page.length < Math.min(STREMIO_PAGE_GUESS, 20)) hasMore = false;
       if (!canSkip) hasMore = false;
     }
-    const capped = wantEnd < opts.startIndex + opts.limit && offset >= cap;
+    const capped =
+      (wantEnd >= cap && offset >= cap) ||
+      repeated ||
+      (hasMore && offset < wantEnd && guard >= 50);
     if (!opts.search && !opts.genre && opts.startIndex === 0) {
       const key = `${catalog.type}|${catalog.id}`;
       if (out.length === 0) {
@@ -232,7 +242,7 @@ export class JellyfinService {
     }
     return {
       items: out,
-      hasMore: hasMore && offset >= wantEnd && wantEnd < cap,
+      hasMore: !capped && (offset > wantEnd || (hasMore && offset >= wantEnd)),
       capped,
     };
   }
@@ -336,38 +346,43 @@ export class JellyfinService {
     // are a separate cheap fetch (subtitleMemo) attached after, so pressing
     // Play reuses the on-open scrape instead of re-running engine.getStreams.
     const k = `${type}|${videoId}`;
-    const scrape = this.memo(this.streamsMemo, k, STREAMS_MEMO_TTL_MS, async () => {
-      const engine = await this.getEngine();
-      const response = await engine.getStreams(videoId, type);
-      const streams = response.data.streams.filter((s) => !!s.url);
-      const ctx = engine.getStreamContext();
-      const formatter = ctx
-        ? createFormatter(ctx.toFormatterContext(streams))
-        : null;
-      const formatted = await Promise.all(
-        streams.map(async (s) => {
-          if (s.addon.formatPassthrough || !formatter) {
-            return {
-              name: s.originalName || s.addon.name,
-              description: s.originalDescription || '',
-            };
-          }
-          try {
-            return await formatter.format(s);
-          } catch {
-            return {
-              name: s.originalName || s.addon.name,
-              description: s.originalDescription || '',
-            };
-          }
-        })
-      );
-      return {
-        streams,
-        formatted,
-        errors: response.errors ?? [],
-      };
-    });
+    const scrape = this.memo(
+      this.streamsMemo,
+      k,
+      STREAMS_MEMO_TTL_MS,
+      async () => {
+        const engine = await this.getEngine();
+        const response = await engine.getStreams(videoId, type);
+        const streams = response.data.streams.filter((s) => !!s.url);
+        const ctx = engine.getStreamContext();
+        const formatter = ctx
+          ? createFormatter(ctx.toFormatterContext(streams))
+          : null;
+        const formatted = await Promise.all(
+          streams.map(async (s) => {
+            if (s.addon.formatPassthrough || !formatter) {
+              return {
+                name: s.originalName || s.addon.name,
+                description: s.originalDescription || '',
+              };
+            }
+            try {
+              return await formatter.format(s);
+            } catch {
+              return {
+                name: s.originalName || s.addon.name,
+                description: s.originalDescription || '',
+              };
+            }
+          })
+        );
+        return {
+          streams,
+          formatted,
+          errors: response.errors ?? [],
+        };
+      }
+    );
     if (!withSubtitles) {
       return scrape.then((r) => ({ ...r, subtitles: [] as Subtitle[] }));
     }
