@@ -4,16 +4,25 @@ on:
   pull_request:
     branches:
       - main
+      - release
+      - 'feat/aiofin-release-*'
     paths:
+      - '.github/workflows/build.yml'
       - 'packages/**'
-      - 'package-lock.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'patches/**'
       - 'package.json'
       - 'tsconfig.json'
       - 'tsconfig.base.json'
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - name: Use Node.js
@@ -27,3 +36,13 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build Addon
         run: pnpm run build
+      - name: Core tests including SQLite persistence
+        run: pnpm --filter @aiostreams/core test
+      - name: Server tests
+        run: pnpm --filter @aiostreams/server exec vitest run
+      - name: Frontend tests
+        run: pnpm --filter @aiostreams/frontend exec vitest run
+      - name: Frontend lint
+        run: pnpm --filter @aiostreams/frontend lint
+      - name: Frontend typecheck
+        run: pnpm --filter @aiostreams/frontend typecheck
