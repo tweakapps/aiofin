@@ -1,4 +1,7 @@
 import {
+  collectConcurrent,
+  config,
+  type JellyfinService,
   buildEpisodeItem,
   buildMetaItem,
   buildSeasonItem,
@@ -311,32 +314,124 @@ export async function episodesForSeries(
   return { meta, seriesItem, episodes };
 }
 
+const NEXT_UP_HISTORY_LIMIT = 500;
+const nextUpMetadata = new WeakMap<
+  JellyfinService,
+  Map<string, { expiresAt: number; promise: Promise<ParsedMeta | null> }>
+>();
+
+function nextUpMeta(ctx: JellyfinRequestContext, d: { t: string; i: string }) {
+  let cache = nextUpMetadata.get(ctx.service);
+  if (!cache) nextUpMetadata.set(ctx.service, (cache = new Map()));
+  const key = JSON.stringify([d.t, d.i]);
+  const existing = cache.get(key);
+  if (existing && existing.expiresAt > Date.now()) return existing.promise;
+  const promise = ctx.service.getMetaLoose(d.t, d.i).catch(() => null);
+  if (cache.size >= NEXT_UP_HISTORY_LIMIT)
+    cache.delete(cache.keys().next().value!);
+  cache.set(key, { expiresAt: Date.now() + 60_000, promise });
+  return promise;
+}
+
+async function selectNextUp(
+  ctx: JellyfinRequestContext,
+  d: { t: string; i: string },
+  source: ParsedMeta,
+  last?: JellyfinPlaystateRow,
+  enableResumable = true
+): Promise<(() => JellyfinItem) | null> {
+  const meta = { ...source, type: d.t, id: d.i };
+  const pairs = groupSeasons(meta)
+    .filter((g) => g.season !== 0)
+    .flatMap((g) =>
+      g.videos
+        .filter(
+          (v) => !v.released || !(new Date(v.released).getTime() > Date.now())
+        )
+        .map((v) => ({
+          g,
+          v,
+          id: encodeJellyfinId({
+            k: 'episode',
+            t: d.t,
+            i: d.i,
+            s: g.season,
+            e: v.episode ?? 0,
+            v: v.id,
+          }),
+        }))
+    );
+  const states = await JellyfinRepository.getPlaystates(
+    ctx.uuid,
+    pairs.map((p) => p.id)
+  );
+  const eligible = (pair: (typeof pairs)[number]) => {
+    const state = states.get(pair.id);
+    return !state?.played && (enableResumable || !state?.positionTicks);
+  };
+  const index = last ? pairs.findIndex((pair) => pair.id === last.itemId) : -1;
+  const resume =
+    index >= 0 &&
+    eligible(pairs[index]) &&
+    (states.get(pairs[index].id)?.positionTicks ?? 0) > 0;
+  const pair = resume ? pairs[index] : pairs.slice(index + 1).find(eligible);
+  if (!pair) return null;
+  return () =>
+    buildEpisodeItem(
+      ctx.build,
+      meta,
+      buildMetaItem(ctx.build, meta, { complete: true }),
+      pair.g,
+      pair.v,
+      states.get(pair.id)
+    );
+}
+
+export async function nextUpPage(
+  ctx: JellyfinRequestContext,
+  startIndex: number,
+  limit: number,
+  enableResumable: boolean
+) {
+  const recent = await JellyfinRepository.listRecentEpisodesBySeries(
+    ctx.uuid,
+    NEXT_UP_HISTORY_LIMIT
+  );
+  const seen = new Set<string>();
+  const candidates = recent.filter((row) => {
+    if (row.payload.k !== 'episode') return false;
+    const key = JSON.stringify([row.payload.t, row.payload.i]);
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const selected = await collectConcurrent(
+    candidates,
+    async (row) => {
+      if (row.payload.k !== 'episode') return [];
+      const d = { t: row.payload.t, i: row.payload.i };
+      const meta = await nextUpMeta(ctx, d);
+      if (!meta) return [];
+      const next = await selectNextUp(ctx, d, meta, row, enableResumable);
+      return next ? [next] : [];
+    },
+    { concurrency: config.api.jellyfinLookupConcurrency }
+  );
+  return list(
+    selected.slice(startIndex, startIndex + limit).map((build) => build()),
+    selected.length,
+    startIndex
+  );
+}
+
 export async function nextUpForSeries(
   ctx: JellyfinRequestContext,
   d: { t: string; i: string },
   last?: JellyfinPlaystateRow,
   enableResumable = true
 ): Promise<JellyfinItem | null> {
-  const res = await episodesForSeries(ctx, d);
-  if (!res) return null;
-  const eps = res.episodes.filter(
-    (e) => e.LocationType !== 'Virtual' && (e.ParentIndexNumber as number) !== 0
-  );
-  if (!eps.length) return null;
-  const eligible = (e: JellyfinItem) => {
-    const ud = e.UserData as {
-      Played: boolean;
-      PlaybackPositionTicks: number;
-    };
-    return !ud.Played && (enableResumable || ud.PlaybackPositionTicks <= 0);
-  };
-  if (last) {
-    const idx = eps.findIndex((e) => e.Id === last.itemId);
-    if (idx >= 0) {
-      const ud = eps[idx].UserData as { PlaybackPositionTicks: number };
-      if (eligible(eps[idx]) && ud.PlaybackPositionTicks > 0) return eps[idx];
-      return eps.slice(idx + 1).find(eligible) ?? null;
-    }
-  }
-  return eps.find(eligible) ?? null;
+  const meta = await nextUpMeta(ctx, d);
+  if (!meta) return null;
+  const candidate = await selectNextUp(ctx, d, meta, last, enableResumable);
+  return candidate?.() ?? null;
 }

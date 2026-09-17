@@ -39,6 +39,17 @@ export interface CatalogPageOptions {
   limit: number;
   search?: string;
   genre?: string;
+  maxPages?: number;
+}
+
+interface CatalogTraversal {
+  items: MetaPreview[];
+  skip: number;
+  done: boolean;
+  repeated: boolean;
+  signatures: Set<string>;
+  lock: Promise<void>;
+  expiresAt: number;
 }
 
 export interface CatalogPageResult {
@@ -61,6 +72,7 @@ export class JellyfinService {
   private initPromise: Promise<AIOStreams> | null = null;
   private readonly metaMemo = new Map<string, MemoEntry<ParsedMeta | null>>();
   private readonly catalogMemo = new Map<string, MemoEntry<MetaPreview[]>>();
+  private readonly catalogTraversals = new Map<string, CatalogTraversal>();
   private readonly subtitleMemo = new Map<string, MemoEntry<Subtitle[]>>();
   private readonly streamsMemo = new Map<string, MemoEntry<ScrapedStreams>>();
   /**
@@ -186,65 +198,101 @@ export class JellyfinService {
       extrasBase.push(`genre=${opts.genre.replace(/[&=]/g, ' ')}`);
     }
     const canSkip = supports('skip');
+    const maxPages = Math.min(50, Math.max(0, Math.trunc(opts.maxPages ?? 50)));
     const wantEnd = Math.min(opts.startIndex + opts.limit, cap);
     if (opts.startIndex >= wantEnd) {
       return { items: [], hasMore: false, capped: opts.startIndex >= cap };
     }
 
-    const out: MetaPreview[] = [];
-    let offset = 0;
-    let skip = 0;
-    let hasMore = true;
-    let guard = 0;
-    let repeated = false;
-    const pages = new Set<string>();
-    while (offset < wantEnd && hasMore && guard++ < 50) {
-      const extras = [...extrasBase];
-      if (skip > 0) {
-        if (!canSkip) break;
-        extras.push(`skip=${skip}`);
+    const traversal = this.traversalFor(catalog, extrasBase);
+    const previous = traversal.lock;
+    let release!: () => void;
+    traversal.lock = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await previous;
+    try {
+      let pagesFetched = 0;
+      while (
+        traversal.items.length < wantEnd &&
+        !traversal.done &&
+        pagesFetched < maxPages
+      ) {
+        const extras = [...extrasBase];
+        if (traversal.skip > 0) extras.push(`skip=${traversal.skip}`);
+        const page = await this.fetchCatalog(
+          catalog.type,
+          catalog.id,
+          extras.length ? extras.join('&') : undefined
+        );
+        pagesFetched++;
+        if (!page.length) {
+          traversal.done = true;
+          break;
+        }
+        const signature = JSON.stringify(
+          page.map((item) => [item.type, item.id])
+        );
+        if (traversal.signatures.has(signature)) {
+          traversal.repeated = true;
+          traversal.done = true;
+          break;
+        }
+        traversal.signatures.add(signature);
+        traversal.items.push(...page.slice(0, cap - traversal.items.length));
+        traversal.skip += page.length;
+        if (!canSkip) traversal.done = true;
       }
-      const page = await this.fetchCatalog(
-        catalog.type,
-        catalog.id,
-        extras.length ? extras.join('&') : undefined
-      );
-      if (page.length === 0) {
-        hasMore = false;
-        break;
+      const out = traversal.items.slice(opts.startIndex, wantEnd);
+      const capped =
+        (wantEnd >= cap && traversal.items.length >= cap) ||
+        (traversal.repeated && wantEnd >= traversal.items.length);
+      if (!opts.search && !opts.genre && opts.startIndex === 0) {
+        const key = `${catalog.type}|${catalog.id}`;
+        if (!out.length && traversal.done) {
+          this.emptyCatalogs.set(key, Date.now() + EMPTY_CATALOG_TTL_MS);
+        } else if (out.length) {
+          this.emptyCatalogs.delete(key);
+        }
       }
-      const signature = JSON.stringify(
-        page.map((item) => [item.type, item.id])
-      );
-      if (pages.has(signature)) {
-        repeated = true;
-        break;
-      }
-      pages.add(signature);
-      for (const item of page) {
-        if (offset >= opts.startIndex && offset < wantEnd) out.push(item);
-        offset++;
-      }
-      skip += page.length;
-      if (!canSkip) hasMore = false;
+      return {
+        items: out,
+        hasMore:
+          !capped && (traversal.items.length > wantEnd || !traversal.done),
+        capped,
+      };
+    } finally {
+      release();
     }
-    const capped =
-      (wantEnd >= cap && offset >= cap) ||
-      repeated ||
-      (hasMore && offset < wantEnd && guard >= 50);
-    if (!opts.search && !opts.genre && opts.startIndex === 0) {
-      const key = `${catalog.type}|${catalog.id}`;
-      if (out.length === 0) {
-        this.emptyCatalogs.set(key, Date.now() + EMPTY_CATALOG_TTL_MS);
-      } else {
-        this.emptyCatalogs.delete(key);
-      }
-    }
-    return {
-      items: out,
-      hasMore: !capped && (offset > wantEnd || (hasMore && offset >= wantEnd)),
-      capped,
+  }
+
+  private traversalFor(
+    catalog: Catalog,
+    extrasBase: string[]
+  ): CatalogTraversal {
+    const key = JSON.stringify([
+      catalog.type,
+      catalog.id,
+      extrasBase,
+      appConfig.api.jellyfinMaxCatalogItems,
+    ]);
+    const existing = this.catalogTraversals.get(key);
+    if (existing && existing.expiresAt > Date.now()) return existing;
+    const traversal: CatalogTraversal = {
+      items: [],
+      skip: 0,
+      done: false,
+      repeated: false,
+      signatures: new Set(),
+      lock: Promise.resolve(),
+      expiresAt: Date.now() + CATALOG_MEMO_TTL_MS,
     };
+    if (this.catalogTraversals.size >= MEMO_MAX_ENTRIES) {
+      const oldest = this.catalogTraversals.keys().next().value;
+      if (oldest !== undefined) this.catalogTraversals.delete(oldest);
+    }
+    this.catalogTraversals.set(key, traversal);
+    return traversal;
   }
 
   async getCatalogGenres(catalog: Catalog): Promise<string[]> {

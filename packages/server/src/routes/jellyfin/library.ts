@@ -10,13 +10,14 @@ import {
 } from '@aiostreams/core';
 import {
   buildGenreItem,
-  buildMetaItem,
-  buildViewItem,
+  descriptorForMeta,
+  stremioTypeToItemType,
+  parseRuntimeToTicks,
+  playstateToUserData,
   decodeJellyfinId,
   encodeJellyfinId,
   JellyfinRepository,
   stripInternal,
-  collectionTypeFor,
   type JellyfinItem,
   type JellyfinItemDescriptor,
   type MetaPreview,
@@ -38,6 +39,7 @@ import {
   itemsFromPreviews,
   list,
   nextUpForSeries,
+  nextUpPage,
   seasonsForSeries,
   viewItems,
 } from './items.js';
@@ -46,45 +48,161 @@ const logger = createLogger('jellyfin');
 const router: Router = Router({ mergeParams: true });
 
 const MAX_MEDIA_SOURCES = 50;
-const SNAPSHOT_MAX_ITEMS = 1000;
-const SNAPSHOT_MAX_CATALOGS = 50;
+const SNAPSHOT_PAGE_BUDGET = 16;
+const SNAPSHOT_PAGE_SIZE = 256;
+const SNAPSHOT_ITEM_LIMIT = 20_000;
+const SNAPSHOT_TTL_MS = 60_000;
+const snapshots = new WeakMap<JellyfinService, Map<string, CatalogSnapshot>>();
+
+type SnapshotCatalog = Awaited<
+  ReturnType<JellyfinService['getCatalogs']>
+>[number];
+interface CatalogSnapshot {
+  catalogs: {
+    catalog: SnapshotCatalog;
+    previews: MetaPreview[];
+    offset: number;
+    done: boolean;
+    capped: boolean;
+    failed: boolean;
+  }[];
+  expiresAt: number;
+  lock: Promise<void>;
+}
 
 async function snapshotPages(
   ctx: JellyfinRequestContext,
-  catalogs: Awaited<ReturnType<JellyfinService['getCatalogs']>>,
+  catalogs: SnapshotCatalog[],
   scope: { search?: string; genre?: string },
   parentId: string | undefined,
-  what: string
-): Promise<{ previews: MetaPreview[]; parents: (string | undefined)[] }> {
-  const previews: MetaPreview[] = [];
-  const parents: (string | undefined)[] = [];
-  const seen = new Set<string>();
-  for (const catalog of catalogs) {
-    if (previews.length >= SNAPSHOT_MAX_ITEMS) break;
-    const page = await safeCatalogPage(
-      ctx,
-      catalog,
-      {
-        startIndex: 0,
-        limit: SNAPSHOT_MAX_ITEMS - previews.length,
-        ...scope,
-      },
-      what
-    );
-    const viewId = encodeJellyfinId({
-      k: 'view',
-      t: catalog.type,
-      c: catalog.id,
-    });
-    for (const preview of page.items) {
-      const key = `${preview.type}|${preview.id}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      previews.push(preview);
-      parents.push(parentId ?? viewId);
-    }
+  what: string,
+  target: number
+) {
+  let cache = snapshots.get(ctx.service);
+  if (!cache) snapshots.set(ctx.service, (cache = new Map()));
+  const key = JSON.stringify([
+    catalogs,
+    scope,
+    appConfig.api.jellyfinMaxCatalogItems,
+  ]);
+  let snapshot = cache.get(key);
+  if (!snapshot || snapshot.expiresAt <= Date.now()) {
+    snapshot = {
+      catalogs: catalogs.map((catalog) => ({
+        catalog,
+        previews: [],
+        offset: 0,
+        done: false,
+        capped: false,
+        failed: false,
+      })),
+      expiresAt: Date.now() + SNAPSHOT_TTL_MS,
+      lock: Promise.resolve(),
+    };
+    if (cache.size >= 32) cache.delete(cache.keys().next().value!);
+    cache.set(key, snapshot);
   }
-  return { previews, parents };
+  const current = snapshot;
+  const previous = current.lock;
+  let release!: () => void;
+  current.lock = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    const materialized = () => {
+      const previews: MetaPreview[] = [];
+      const parents: (string | undefined)[] = [];
+      const seen = new Set<string>();
+      for (const entry of current.catalogs) {
+        const viewId =
+          parentId ??
+          encodeJellyfinId({
+            k: 'view',
+            t: entry.catalog.type,
+            c: entry.catalog.id,
+          });
+        for (const preview of entry.previews) {
+          const id = `${preview.type}|${preview.id}`;
+          if (seen.has(id)) continue;
+          seen.add(id);
+          previews.push(preview);
+          parents.push(viewId);
+        }
+        if (!entry.done) break;
+      }
+      return { previews, parents };
+    };
+    let calls = 0;
+    let result = materialized();
+    let stored = current.catalogs.reduce(
+      (sum, entry) => sum + entry.previews.length,
+      0
+    );
+    if (result.previews.length < target) {
+      while (calls < SNAPSHOT_PAGE_BUDGET && stored < SNAPSHOT_ITEM_LIMIT) {
+        const pending = current.catalogs
+          .filter((entry) => !entry.done)
+          .slice(
+            0,
+            Math.min(
+              SNAPSHOT_PAGE_BUDGET - calls,
+              Math.max(1, appConfig.api.jellyfinLookupConcurrency)
+            )
+          );
+        if (!pending.length) break;
+        const allowance = Math.min(
+          SNAPSHOT_PAGE_SIZE,
+          Math.floor((SNAPSHOT_ITEM_LIMIT - stored) / pending.length)
+        );
+        if (!allowance) break;
+        calls += pending.length;
+        await collectConcurrent(
+          pending,
+          async (entry) => {
+            try {
+              const page = await ctx.service.getCatalogPage(entry.catalog, {
+                startIndex: entry.offset,
+                limit: allowance,
+                maxPages: 1,
+                ...scope,
+              });
+              entry.previews.push(...page.items);
+              entry.offset += page.items.length;
+              entry.done = !page.hasMore;
+              entry.capped = page.capped;
+            } catch (error) {
+              entry.done = true;
+              entry.failed = true;
+              logger.error(
+                {
+                  err: error instanceof Error ? error.message : String(error),
+                  catalog: entry.catalog.id,
+                },
+                `catalog fetch failed in ${what}`
+              );
+            }
+            return [];
+          },
+          { concurrency: appConfig.api.jellyfinLookupConcurrency }
+        );
+        stored = current.catalogs.reduce(
+          (sum, entry) => sum + entry.previews.length,
+          0
+        );
+        result = materialized();
+        if (result.previews.length >= target) break;
+      }
+    }
+    const complete = current.catalogs.every((entry) => entry.done);
+    return {
+      ...result,
+      complete,
+      failed: current.catalogs.some((entry) => entry.failed),
+    };
+  } finally {
+    release();
+  }
 }
 
 async function safeCatalogPage(
@@ -411,26 +529,91 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
   else if (genreFromIds?.k === 'genre' && genreFromIds.c)
     catalogDesc = genreFromIds;
 
+  const needsFullSnapshot =
+    qlist(req, 'SortBy').some(
+      (sort) =>
+        ![
+          'default',
+          'datecreated',
+          'dateplayed',
+          'dateadded',
+          'datelastcontentadded',
+        ].includes(sort.toLowerCase())
+    ) ||
+    filters.length > 0 ||
+    qb(req, 'IsPlayed') !== undefined ||
+    qb(req, 'IsFavorite') !== undefined;
+  const snapshotList = async (
+    catalogs: SnapshotCatalog[],
+    scope: { search?: string; genre?: string },
+    what: string
+  ) => {
+    const snapshot = await snapshotPages(
+      ctx,
+      catalogs,
+      scope,
+      parentId,
+      what,
+      needsFullSnapshot ? Infinity : startIndex + limit
+    );
+    if (needsFullSnapshot && (!snapshot.complete || snapshot.failed))
+      return null;
+    const projections = snapshot.previews.map((preview, index) => {
+      const runtime = preview.runtime;
+      const ticks = parseRuntimeToTicks(
+        typeof runtime === 'string' || typeof runtime === 'number'
+          ? runtime
+          : undefined
+      );
+      const id = encodeJellyfinId(descriptorForMeta(preview));
+      const year = [preview.releaseInfo, preview.year, preview.released]
+        .map((value) => String(value ?? '').match(/\d{4}/)?.[0])
+        .find(Boolean);
+      return {
+        Id: id,
+        Name: preview.name ?? preview.id,
+        SortName: (preview.name ?? preview.id).toLowerCase(),
+        Type: stremioTypeToItemType(preview.type),
+        ProductionYear: year ? Number(year) : undefined,
+        CommunityRating: Number(preview.imdbRating) || undefined,
+        RunTimeTicks: ticks,
+        UserData: playstateToUserData(id, undefined, ticks),
+        ServerId: ctx.serverId,
+        IsFolder: stremioTypeToItemType(preview.type) === 'Series',
+        index,
+      };
+    });
+    if (needsFullSnapshot) await attachUserData(ctx, projections);
+    const selected = applySort(
+      req,
+      applyUserFilters(req, filterByType(projections, types))
+    );
+    if (!snapshot.complete && selected.length < startIndex + limit) return null;
+    const pageIndices = selected
+      .slice(startIndex, startIndex + limit)
+      .map((item) => item.index as number);
+    const built = await itemsFromPreviews(
+      ctx,
+      pageIndices.map((index) => snapshot.previews[index])
+    );
+    built.forEach((item, index) => {
+      item.ParentId = snapshot.parents[pageIndices[index]];
+    });
+    return list(
+      built,
+      selected.length + (snapshot.complete ? 0 : 1),
+      startIndex
+    );
+  };
+
   if (catalogDesc) {
     const catalog = await ctx.service.findCatalog(catalogDesc.t, catalogDesc.c);
     if (!catalog) return list([], 0, startIndex);
     const g = parent?.k === 'genre' ? parent.g : genre;
-    const { previews } = await snapshotPages(
-      ctx,
+    return snapshotList(
       [catalog],
       { search: searchTerm, genre: g },
-      parentId,
       'Items by view'
-    );
-    const items = await itemsFromPreviews(ctx, previews, parentId);
-    const filtered = applySort(
-      req,
-      applyUserFilters(req, filterByType(items, types))
-    );
-    return list(
-      filtered.slice(startIndex, startIndex + limit),
-      filtered.length,
-      startIndex
     );
   }
 
@@ -442,23 +625,7 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
         (!wanted || wanted.includes(c.type))
       );
     });
-    const { previews } = await snapshotPages(
-      ctx,
-      catalogs.slice(0, SNAPSHOT_MAX_CATALOGS),
-      { search: searchTerm },
-      parentId,
-      'Items by search'
-    );
-    const items = await itemsFromPreviews(ctx, previews);
-    const filtered = applySort(
-      req,
-      applyUserFilters(req, filterByType(items, types))
-    );
-    return list(
-      filtered.slice(startIndex, startIndex + limit),
-      filtered.length,
-      startIndex
-    );
+    return snapshotList(catalogs, { search: searchTerm }, 'Items by search');
   }
 
   if (!parentId && !recursive) {
@@ -468,29 +635,8 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
   if (!parentId && recursive) {
     const catalogs = await ctx.service.getCatalogs();
     const wanted = stremioTypesFor(types);
-    const usable = catalogs
-      .filter((c) => !wanted || wanted.includes(c.type))
-      .slice(0, SNAPSHOT_MAX_CATALOGS);
-    const { previews, parents } = await snapshotPages(
-      ctx,
-      usable,
-      {},
-      undefined,
-      'Items recursive'
-    );
-    const built = await itemsFromPreviews(ctx, previews);
-    for (let i = 0; i < built.length; i++) {
-      if (parents[i]) (built[i] as { ParentId?: string }).ParentId = parents[i];
-    }
-    const items = applySort(
-      req,
-      applyUserFilters(req, filterByType(built, types))
-    );
-    return list(
-      items.slice(startIndex, startIndex + limit),
-      items.length,
-      startIndex
-    );
+    const usable = catalogs.filter((c) => !wanted || wanted.includes(c.type));
+    return snapshotList(usable, {}, 'Items recursive');
   }
 
   return list([], 0, startIndex);
@@ -499,7 +645,14 @@ async function handleItemsQuery(req: Request, ctx: JellyfinRequestContext) {
 router.get(
   ['/Users/:userId/Items', '/Items'],
   jf(async (req, res, ctx) => {
-    res.json(await handleItemsQuery(req, ctx));
+    const result = await handleItemsQuery(req, ctx);
+    if (!result) {
+      res.set('Retry-After', '1').status(503).json({
+        Message: 'Library snapshot is not ready. Retry the request.',
+      });
+      return;
+    }
+    res.json(result);
   })
 );
 
@@ -602,30 +755,8 @@ router.get(
         if (next) items.push(next);
       }
     } else {
-      const recent = await JellyfinRepository.listRecentEpisodesBySeries(
-        ctx.uuid,
-        SNAPSHOT_MAX_ITEMS
-      );
-      const candidates = recent.filter(
-        (row): row is typeof row & { payload: { t: string; i: string } } =>
-          row.payload.k === 'episode'
-      );
-      const nexts = await lookup(
-        candidates,
-        async (row) => {
-          const next = await nextUpForSeries(
-            ctx,
-            { t: row.payload.t, i: row.payload.i },
-            row,
-            enableResumable
-          );
-          return next && !(next.UserData as { Played: boolean }).Played
-            ? [next]
-            : [];
-        },
-        { what: 'series in Next Up' }
-      );
-      items.push(...nexts);
+      res.json(await nextUpPage(ctx, startIndex, limit, enableResumable));
+      return;
     }
     const page = items.slice(startIndex, startIndex + limit);
     res.json(list(page, items.length, startIndex));

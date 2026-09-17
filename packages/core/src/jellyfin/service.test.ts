@@ -98,7 +98,29 @@ describe('JellyfinService catalog paging', () => {
     assert.equal(page.capped, false);
   });
 
-  it('marks the request guard as capped instead of an exhausted catalog', async () => {
+  it('resumes a request budget without treating it as a catalog cap', async () => {
+    const { svc, catalog, getCatalog, data } = catalogService(100, 1);
+    const first = await svc.getCatalogPage(catalog, {
+      startIndex: 0,
+      limit: 100,
+      maxPages: 3,
+    });
+    assert.equal(first.items.length, 3);
+    assert.equal(first.hasMore, true);
+    assert.equal(first.capped, false);
+    assert.equal(getCatalog.mock.callCount(), 3);
+    const second = await svc.getCatalogPage(catalog, {
+      startIndex: 3,
+      limit: 3,
+      maxPages: 3,
+    });
+    assert.deepEqual(second.items, data.slice(3, 6));
+    assert.equal(getCatalog.mock.callCount(), 6);
+    await svc.getCatalogPage(catalog, { startIndex: 0, limit: 3, maxPages: 3 });
+    assert.equal(getCatalog.mock.callCount(), 6);
+  });
+
+  it('marks the request guard as resumable instead of an exhausted catalog', async () => {
     const { svc, catalog, getCatalog } = catalogService(100, 1);
     const page = await svc.getCatalogPage(catalog, {
       startIndex: 0,
@@ -106,8 +128,8 @@ describe('JellyfinService catalog paging', () => {
     });
     assert.equal(page.items.length, 50);
     assert.equal(getCatalog.mock.callCount(), 50);
-    assert.equal(page.capped, true);
-    assert.equal(page.hasMore, false);
+    assert.equal(page.capped, false);
+    assert.equal(page.hasMore, true);
   });
 
   it('stops an addon that ignores skip without filling the snapshot with repeats', async () => {
