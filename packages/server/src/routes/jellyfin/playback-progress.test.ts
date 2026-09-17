@@ -4,35 +4,35 @@ import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { JellyfinRequestContext } from './context.js';
 
-type Playstate = {
-  positionTicks: number;
-  runtimeTicks: number;
-  played: boolean;
-  playCount: number;
-  lastPlayedAt?: number | null;
-};
-
-type Patch = Partial<Omit<Playstate, 'playCount'>> & {
-  incrementPlayCount?: boolean | 'if-unplayed';
-};
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SqliteDriver } from '../../../../core/src/db/driver/sqlite.js';
+import { runMigrations } from '../../../../core/src/db/migrations/runner.js';
+import { JellyfinRepository } from '../../../../core/src/db/repositories/jellyfin.js';
 
 const mocks = vi.hoisted(() => ({
-  rows: new Map<string, Playstate>(),
-  getPlaystate: vi.fn(),
-  upsertPlaystate: vi.fn(),
+  db: undefined as unknown as SqliteDriver,
   getMetaLoose: vi.fn(),
+  buildMediaSources: vi.fn(),
+  decode: vi.fn(),
+}));
+
+vi.mock('../../../../core/src/db/db.js', () => ({ getDb: () => mocks.db }));
+vi.mock('../../../../core/src/logging/logger.js', () => ({
+  createLogger: () => ({ debug: vi.fn(), info: vi.fn(), warn: vi.fn() }),
 }));
 
 vi.mock('@aiostreams/core', () => ({
-  config: { bootstrap: {}, api: {} },
+  config: {
+    bootstrap: {},
+    api: { jellyfinAttachSourcesClients: [], jellyfinMaxPlaybackSources: 20 },
+  },
   createLogger: () => ({ debug: vi.fn(), warn: vi.fn(), error: vi.fn() }),
-  decodeJellyfinId: vi.fn(async () => ({ k: 'movie', t: 'movie', i: 'tt123' })),
+  decodeJellyfinId: mocks.decode,
   decryptString: vi.fn(),
   encryptString: vi.fn(),
-  JellyfinRepository: {
-    getPlaystate: mocks.getPlaystate,
-    upsertPlaystate: mocks.upsertPlaystate,
-  },
+  JellyfinRepository,
   makeRequest: vi.fn(() => {
     throw new Error('Unexpected upstream request');
   }),
@@ -54,7 +54,13 @@ vi.mock('./context.js', () => ({
       try {
         await handler(req, res, {
           uuid: req.get('x-test-profile') ?? 'profile-a',
-          service: { getMetaLoose: mocks.getMetaLoose },
+          userId: 'user-a',
+          client: { name: 'Infuse', deviceId: 'device-a' },
+          service: {
+            getMetaLoose: mocks.getMetaLoose,
+            buildMediaSources: mocks.buildMediaSources,
+            resolveVideoId: async () => 'tt123',
+          },
         } as unknown as JellyfinRequestContext);
       } catch (error) {
         next(error);
@@ -80,12 +86,14 @@ const PATHS = {
 
 let server: Server;
 let baseUrl: string;
+let directory: string;
 
 async function send(
   event: keyof typeof PATHS,
   position?: unknown,
   profile = 'profile-a',
-  session?: string
+  session?: string,
+  extra: Record<string, unknown> = {}
 ) {
   const response = await fetch(`${baseUrl}${PATHS[event]}`, {
     method: 'POST',
@@ -97,58 +105,35 @@ async function send(
       ItemId: ITEM,
       PositionTicks: position,
       PlaySessionId: session,
+      ...extra,
     }),
   });
   expect(response.status).toBe(204);
 }
 
 function state(profile = 'profile-a') {
-  return mocks.rows.get(`${profile}:${ITEM}`);
+  return JellyfinRepository.getPlaystate(profile, ITEM);
 }
 
 beforeEach(async () => {
-  vi.resetModules();
   vi.clearAllMocks();
-  mocks.rows.clear();
+  directory = await mkdtemp(join(tmpdir(), 'jellyfin-route-'));
+  mocks.db = new SqliteDriver(join(directory, 'state.db'));
+  await runMigrations(mocks.db);
+  for (const uuid of ['profile-a', 'profile-b']) {
+    await mocks.db.exec(
+      `INSERT INTO users (uuid, password_hash, config, config_salt)
+      VALUES (?, '', '', '')`,
+      [uuid]
+    );
+    await JellyfinRepository.rememberPlaybackRuntimes(uuid, ITEM, {
+      fallback: RUNTIME,
+      sources: [],
+    });
+  }
+  mocks.decode.mockResolvedValue({ k: 'movie', t: 'movie', i: 'tt123' });
   mocks.getMetaLoose.mockResolvedValue({ runtime: RUNTIME });
-  mocks.getPlaystate.mockImplementation(
-    async (uuid: string, itemId: string) => {
-      const row = mocks.rows.get(`${uuid}:${itemId}`);
-      return row ? { ...row } : null;
-    }
-  );
-  mocks.upsertPlaystate.mockImplementation(
-    async (
-      uuid: string,
-      itemId: string,
-      _descriptor: unknown,
-      patch: Patch
-    ) => {
-      const key = `${uuid}:${itemId}`;
-      const previous = mocks.rows.get(key) ?? {
-        positionTicks: 0,
-        runtimeTicks: 0,
-        played: false,
-        playCount: 0,
-      };
-      const increment =
-        patch.incrementPlayCount === 'if-unplayed'
-          ? !previous.played
-          : patch.incrementPlayCount === true;
-      const row = {
-        positionTicks: patch.positionTicks ?? previous.positionTicks,
-        runtimeTicks: patch.runtimeTicks ?? previous.runtimeTicks,
-        played: patch.played ?? previous.played,
-        playCount: previous.playCount + Number(increment),
-        lastPlayedAt:
-          patch.lastPlayedAt === undefined
-            ? previous.lastPlayedAt
-            : patch.lastPlayedAt,
-      };
-      mocks.rows.set(key, row);
-      return { ...row };
-    }
-  );
+  mocks.buildMediaSources.mockResolvedValue({ sources: [], errors: [] });
   const { default: router } = await import('./playback.js');
   const app = express();
   app.use(express.json());
@@ -165,16 +150,65 @@ afterEach(async () => {
       server.close((error) => (error ? reject(error) : resolve()))
     );
   }
+  await mocks.db.close();
+  await rm(directory, { recursive: true, force: true });
 });
 
 describe('mounted Jellyfin playback progress', () => {
+  it('honors client runtime without requesting metadata on heartbeat', async () => {
+    await send('stop', 950 * SECOND, 'profile-a', 'client-runtime', {
+      RunTimeTicks: 2000 * SECOND,
+    });
+    expect(await state()).toMatchObject({
+      played: false,
+      playCount: 0,
+      runtimeTicks: 2000 * SECOND,
+      positionTicks: 950 * SECOND,
+    });
+    expect(mocks.getMetaLoose).not.toHaveBeenCalled();
+  });
+
+  it('uses the selected source duration when no client runtime is provided', async () => {
+    await JellyfinRepository.rememberPlaybackRuntimes('profile-a', ITEM, {
+      fallback: 2000 * SECOND,
+      sources: [{ id: 'selected', ticks: RUNTIME }],
+    });
+    await send('stop', 950 * SECOND, 'profile-a', 'source-runtime', {
+      MediaSourceId: 'selected',
+    });
+    expect(await state()).toMatchObject({
+      played: true,
+      playCount: 1,
+      runtimeTicks: RUNTIME,
+    });
+  });
+  it('ignores an older unfinished session after a newer start', async () => {
+    await send('start', 0, 'profile-a', 'older');
+    await send('progress', 200 * SECOND, 'profile-a', 'older');
+    await send('start', 0, 'profile-a', 'newer');
+    await send('progress', 400 * SECOND, 'profile-a', 'newer');
+    await send('start', 0, 'profile-a', 'older');
+    await send('stop', 950 * SECOND, 'profile-a', 'older');
+    expect(await state()).toMatchObject({
+      played: false,
+      playCount: 0,
+      positionTicks: 400 * SECOND,
+    });
+  });
+
+  it('does not reset resume on duplicate starts', async () => {
+    await send('start', 0, 'profile-a', 'same');
+    await send('progress', 400 * SECOND, 'profile-a', 'same');
+    await send('start', 0, 'profile-a', 'same');
+    expect((await state())?.positionTicks).toBe(400 * SECOND);
+  });
   it('ignores delayed events from a completed session while allowing a new rewatch', async () => {
     await send('start', 0, 'profile-a', 'session-a');
     await send('progress', 950 * SECOND, 'profile-a', 'session-a');
     await send('start', 0, 'profile-a', 'session-a');
     await send('progress', 100 * SECOND, 'profile-a', 'session-a');
     await send('stop', 100 * SECOND, 'profile-a', 'session-a');
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
@@ -182,13 +216,13 @@ describe('mounted Jellyfin playback progress', () => {
     await send('start', 0, 'profile-a', 'session-b');
     await send('progress', 200 * SECOND, 'profile-a', 'session-b');
     await send('stop', 950 * SECOND, 'profile-a', 'session-a');
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: false,
       playCount: 1,
       positionTicks: 200 * SECOND,
     });
     await send('stop', 950 * SECOND, 'profile-a', 'session-b');
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 2,
       positionTicks: 0,
@@ -202,7 +236,7 @@ describe('mounted Jellyfin playback progress', () => {
       send('progress', 100 * SECOND, 'profile-a', 'concurrent'),
       send('stop', 950 * SECOND, 'profile-a', 'concurrent'),
     ]);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
@@ -212,7 +246,7 @@ describe('mounted Jellyfin playback progress', () => {
   it('does not share completed session markers between profiles', async () => {
     await send('stop', 950 * SECOND, 'profile-a', 'shared');
     await send('progress', 200 * SECOND, 'profile-b', 'shared');
-    expect(state('profile-b')).toMatchObject({
+    expect(await state('profile-b')).toMatchObject({
       played: false,
       playCount: 0,
       positionTicks: 200 * SECOND,
@@ -231,7 +265,7 @@ describe('mounted Jellyfin playback progress', () => {
         });
         expect(response.status).toBe(204);
       }
-      expect(state()).toMatchObject({
+      expect(await state()).toMatchObject({
         played: true,
         playCount: 1,
         positionTicks: 0,
@@ -241,14 +275,14 @@ describe('mounted Jellyfin playback progress', () => {
 
   it('counts completion on progress before an explicit stop and duplicate stop', async () => {
     await send('progress', 900 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
     });
     await send('stop', 950 * SECOND);
     await send('stop', 950 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
@@ -260,7 +294,7 @@ describe('mounted Jellyfin playback progress', () => {
     await send('progress', 200 * SECOND);
     await send('stop', 250 * SECOND);
     await send('stop');
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: false,
       playCount: 0,
       positionTicks: 250 * SECOND,
@@ -270,7 +304,7 @@ describe('mounted Jellyfin playback progress', () => {
   it('counts a direct completing stop once', async () => {
     await send('stop', 900 * SECOND);
     await send('stop', 900 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
@@ -282,13 +316,13 @@ describe('mounted Jellyfin playback progress', () => {
     async (position) => {
       await send('stop', 950 * SECOND);
       await send('start', position);
-      expect(state()).toMatchObject({
+      expect(await state()).toMatchObject({
         played: false,
         playCount: 1,
         positionTicks: 0,
       });
       await send('stop', 950 * SECOND);
-      expect(state()).toMatchObject({
+      expect(await state()).toMatchObject({
         played: true,
         playCount: 2,
         positionTicks: 0,
@@ -299,14 +333,14 @@ describe('mounted Jellyfin playback progress', () => {
   it('recognizes a new viewing from below-threshold progress', async () => {
     await send('stop', 950 * SECOND);
     await send('progress', 100 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: false,
       playCount: 1,
       positionTicks: 100 * SECOND,
     });
     await send('progress', 900 * SECOND);
     await send('stop');
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 2,
       positionTicks: 0,
@@ -316,7 +350,7 @@ describe('mounted Jellyfin playback progress', () => {
   it('does not throttle a completion threshold crossing', async () => {
     await send('progress', 899 * SECOND);
     await send('progress', 900 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
@@ -326,13 +360,13 @@ describe('mounted Jellyfin playback progress', () => {
   it('does not throttle below-threshold progress after completion', async () => {
     await send('stop', 900 * SECOND);
     await send('progress', 899 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: false,
       playCount: 1,
       positionTicks: 899 * SECOND,
     });
     await send('stop', 900 * SECOND);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 2,
       positionTicks: 0,
@@ -343,12 +377,12 @@ describe('mounted Jellyfin playback progress', () => {
     await send('progress', 899 * SECOND, 'profile-a');
     await send('progress', 900 * SECOND, 'profile-b');
     await send('stop', undefined, 'profile-b');
-    expect(state('profile-a')).toMatchObject({
+    expect(await state('profile-a')).toMatchObject({
       played: false,
       playCount: 0,
       positionTicks: 899 * SECOND,
     });
-    expect(state('profile-b')).toMatchObject({
+    expect(await state('profile-b')).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,
@@ -361,7 +395,7 @@ describe('mounted Jellyfin playback progress', () => {
       await send('stop', 200 * SECOND);
       await send('progress', position);
       await send('stop', position);
-      expect(state()).toMatchObject({
+      expect(await state()).toMatchObject({
         played: false,
         playCount: 0,
         positionTicks: 200 * SECOND,
@@ -369,7 +403,7 @@ describe('mounted Jellyfin playback progress', () => {
       await send('stop', 900 * SECOND);
       await send('progress', position);
       await send('stop', position);
-      expect(state()).toMatchObject({
+      expect(await state()).toMatchObject({
         played: true,
         playCount: 1,
         positionTicks: 0,
@@ -388,7 +422,7 @@ describe('mounted Jellyfin playback progress', () => {
       { method: 'DELETE' }
     );
     expect(stop.status).toBe(204);
-    expect(state()).toMatchObject({
+    expect(await state()).toMatchObject({
       played: true,
       playCount: 1,
       positionTicks: 0,

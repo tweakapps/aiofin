@@ -110,7 +110,23 @@ async function runtimeTicksFor(
   if (d.k !== 'movie' && d.k !== 'episode' && d.k !== 'series')
     return undefined;
   const meta = await ctx.service.getMetaLoose(d.t, d.i).catch(() => null);
-  return parseRuntimeToTicks(meta?.runtime);
+  const episode =
+    d.k === 'episode'
+      ? meta?.videos?.find(
+          (video) =>
+            video.id === d.v || (video.season === d.s && video.episode === d.e)
+        )
+      : undefined;
+  const ticks = (value: unknown) => {
+    const parsed =
+      typeof value === 'string' || typeof value === 'number'
+        ? parseRuntimeToTicks(value)
+        : undefined;
+    return parsed && Number.isSafeInteger(parsed) && parsed > 0
+      ? parsed
+      : undefined;
+  };
+  return ticks(episode?.runtime) ?? ticks(meta?.runtime);
 }
 
 function clientMatches(clientName: string, clients: readonly string[]) {
@@ -194,6 +210,20 @@ async function playbackInfo(
     });
     return;
   }
+  await JellyfinRepository.rememberPlaybackRuntimes(
+    ctx.uuid,
+    normalizedItemId,
+    {
+      fallback: runtimeTicks,
+      sources: out.map((source) => ({
+        id: source.Id,
+        ticks:
+          typeof source.RunTimeTicks === 'number'
+            ? source.RunTimeTicks
+            : undefined,
+      })),
+    }
+  );
   res.json({
     MediaSources: out,
     AlternateMediaSources: out,
@@ -755,126 +785,35 @@ function idFrom(
     : undefined;
 }
 
-const PLAYED_THRESHOLD = 0.9;
-
-const PROGRESS_MIN_DELTA_TICKS = 30 * 10_000_000;
-const PROGRESS_MIN_WALL_MS = 60_000;
-const lastProgressWrite = new Map<string, { pos: number; at: number }>();
-const LAST_PROGRESS_MAX = 20_000;
-
-const completedSessions = new Map<string, number>();
-const progressQueues = new Map<string, Promise<void>>();
-const COMPLETED_SESSION_TTL_MS = 24 * 60 * 60_000;
-
 function sessionFrom(body: Record<string, unknown>, req: Request) {
   const value =
     body.PlaySessionId ?? body.playSessionId ?? qs(req, 'PlaySessionId');
-  return typeof value === 'string' && value.length > 0 && value.length <= 256
-    ? value
-    : undefined;
+  return value == null || value === ''
+    ? undefined
+    : typeof value === 'string' && value.length <= 256
+      ? value
+      : null;
 }
 
 async function recordProgress(
   ctx: JellyfinRequestContext,
   itemId: string,
-  positionTicks: number | undefined,
-  event: 'start' | 'progress' | 'stop',
-  sessionId?: string
-) {
-  const key = JSON.stringify([ctx.uuid, itemId]);
-  const sessionKey = sessionId
-    ? JSON.stringify([ctx.uuid, itemId, ctx.client?.deviceId ?? '', sessionId])
-    : undefined;
-  const previous = progressQueues.get(key) ?? Promise.resolve();
-  const current = previous
-    .catch(() => {})
-    .then(async () => {
-      const now = Date.now();
-      for (const [id, expires] of completedSessions) {
-        if (expires > now) break;
-        completedSessions.delete(id);
-      }
-      if (sessionKey && (completedSessions.get(sessionKey) ?? 0) > now) return;
-      const completed = await writeProgress(ctx, itemId, positionTicks, event);
-      if (completed && sessionKey) {
-        completedSessions.delete(sessionKey);
-        completedSessions.set(
-          sessionKey,
-          Date.now() + COMPLETED_SESSION_TTL_MS
-        );
-        if (completedSessions.size > LAST_PROGRESS_MAX) {
-          completedSessions.delete(completedSessions.keys().next().value!);
-        }
-      }
-    });
-  progressQueues.set(key, current);
-  try {
-    await current;
-  } finally {
-    if (progressQueues.get(key) === current) progressQueues.delete(key);
-  }
-}
-
-async function writeProgress(
-  ctx: JellyfinRequestContext,
-  itemId: string,
-  positionTicks: number | undefined,
+  body: Record<string, unknown>,
+  req: Request,
   event: 'start' | 'progress' | 'stop'
 ) {
+  const sessionId = sessionFrom(body, req);
+  if (sessionId === null) return;
   const d = await decodeJellyfinId(itemId);
   if (!d || (d.k !== 'movie' && d.k !== 'episode')) return;
-  const runtimeTicks = (await runtimeTicksFor(ctx, d)) ?? 0;
-  const existing = await JellyfinRepository.getPlaystate(ctx.uuid, itemId);
-  const rt = runtimeTicks || existing?.runtimeTicks || 0;
-  const pos = positionTicks ?? existing?.positionTicks ?? 0;
-  const finished =
-    (positionTicks == null && existing?.played === true) ||
-    (rt > 0 && pos >= rt * PLAYED_THRESHOLD);
-  const throttleKey = `${ctx.uuid}:${itemId}`;
-  if (
-    event === 'progress' &&
-    positionTicks != null &&
-    finished === (existing?.played ?? false)
-  ) {
-    const last = lastProgressWrite.get(throttleKey);
-    if (
-      last &&
-      Math.abs(positionTicks - last.pos) < PROGRESS_MIN_DELTA_TICKS &&
-      Date.now() - last.at < PROGRESS_MIN_WALL_MS
-    ) {
-      return;
-    }
-  }
-  if (lastProgressWrite.size >= LAST_PROGRESS_MAX) lastProgressWrite.clear();
-  lastProgressWrite.set(throttleKey, {
-    pos: positionTicks ?? 0,
-    at: Date.now(),
-  });
-  const now = Date.now();
-  if (event === 'start') {
-    await JellyfinRepository.upsertPlaystate(ctx.uuid, itemId, d, {
-      runtimeTicks: rt || undefined,
-      positionTicks: positionTicks ?? undefined,
-      played: false,
-      lastPlayedAt: now,
-    });
-    return;
-  }
-  if (finished) {
-    await JellyfinRepository.upsertPlaystate(ctx.uuid, itemId, d, {
-      positionTicks: 0,
-      runtimeTicks: rt || undefined,
-      played: true,
-      incrementPlayCount: 'if-unplayed',
-      lastPlayedAt: now,
-    });
-    return true;
-  }
-  await JellyfinRepository.upsertPlaystate(ctx.uuid, itemId, d, {
-    positionTicks: pos,
-    runtimeTicks: rt || undefined,
-    played: false,
-    lastPlayedAt: now,
+  const source =
+    body.MediaSourceId ?? body.mediaSourceId ?? qs(req, 'MediaSourceId');
+  await JellyfinRepository.recordPlayback(ctx.uuid, itemId, d, {
+    event,
+    sessionId,
+    positionTicks: ticksFrom(body, req, 'PositionTicks'),
+    runtimeTicks: ticksFrom(body, req, 'RunTimeTicks'),
+    mediaSourceId: typeof source === 'string' ? source : undefined,
   });
 }
 
@@ -883,14 +822,7 @@ router.post(
   jf(async (req, res, ctx) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const id = idFrom(body, req);
-    if (id)
-      await recordProgress(
-        ctx,
-        id,
-        ticksFrom(body, req, 'PositionTicks'),
-        'start',
-        sessionFrom(body, req)
-      );
+    if (id) await recordProgress(ctx, id, body, req, 'start');
     res.status(204).end();
   })
 );
@@ -899,14 +831,7 @@ router.post(
   jf(async (req, res, ctx) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const id = idFrom(body, req);
-    if (id)
-      await recordProgress(
-        ctx,
-        id,
-        ticksFrom(body, req, 'PositionTicks'),
-        'progress',
-        sessionFrom(body, req)
-      );
+    if (id) await recordProgress(ctx, id, body, req, 'progress');
     res.status(204).end();
   })
 );
@@ -915,14 +840,7 @@ router.post(
   jf(async (req, res, ctx) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
     const id = idFrom(body, req);
-    if (id)
-      await recordProgress(
-        ctx,
-        id,
-        ticksFrom(body, req, 'PositionTicks'),
-        'stop',
-        sessionFrom(body, req)
-      );
+    if (id) await recordProgress(ctx, id, body, req, 'stop');
     res.status(204).end();
   })
 );
@@ -930,14 +848,7 @@ router.delete(
   '/PlayingItems/:itemId',
   jf(async (req, res, ctx) => {
     const id = idFrom({}, req);
-    if (id)
-      await recordProgress(
-        ctx,
-        id,
-        ticksFrom({}, req, 'PositionTicks'),
-        'stop',
-        sessionFrom({}, req)
-      );
+    if (id) await recordProgress(ctx, id, {}, req, 'stop');
     res.status(204).end();
   })
 );

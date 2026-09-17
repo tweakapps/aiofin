@@ -1,4 +1,6 @@
+import { createHash } from 'node:crypto';
 import { getDb } from '../db.js';
+import type { DbDriver } from '../driver/types.js';
 import { join, sql } from '../sql.js';
 
 export type JellyfinItemDescriptor =
@@ -51,12 +53,166 @@ function toPlaystate(r: PlaystateDbRow): JellyfinPlaystateRow {
 }
 
 const CHUNK = 200;
+const SESSION_HISTORY_MAX = 256;
+
+function validTicks(value: number | undefined): number | undefined {
+  return value != null && Number.isSafeInteger(value) && value >= 0
+    ? value
+    : undefined;
+}
+
+function sessionHash(sessionId: string): string {
+  return createHash('sha256').update(sessionId).digest('hex');
+}
+
+function sessionHistory(history: string, hash: string) {
+  const sessions = JSON.parse(history) as string[];
+  return {
+    seen: sessions.includes(hash),
+    history: JSON.stringify([...sessions, hash].slice(-SESSION_HISTORY_MAX)),
+  };
+}
+
+interface PlaybackDbRow extends Record<string, unknown> {
+  generation: number | string;
+  session_id: string | null;
+  history: string;
+  completed: number;
+  last_event: string | null;
+  runtimes: string;
+}
+
+async function lockPlayback(tx: DbDriver, uuid: string, itemId: string) {
+  await tx.exec(sql`INSERT INTO jellyfin_playback_state (uuid, item_id)
+    VALUES (${uuid}, ${itemId}) ON CONFLICT(uuid, item_id) DO NOTHING`);
+  await tx.exec(sql`UPDATE jellyfin_playback_state SET generation = generation
+    WHERE uuid = ${uuid} AND item_id = ${itemId}`);
+  return tx.one<PlaybackDbRow>(sql`SELECT * FROM jellyfin_playback_state
+    WHERE uuid = ${uuid} AND item_id = ${itemId}`);
+}
 
 function seriesKeyFor(d: JellyfinItemDescriptor): string | null {
   return d.k === 'episode' ? `${d.t}|${d.i}` : null;
 }
 
 export class JellyfinRepository {
+  static async rememberPlaybackRuntimes(
+    uuid: string,
+    itemId: string,
+    runtimes: { fallback?: number; sources: { id: string; ticks?: number }[] }
+  ): Promise<void> {
+    const sources = Object.fromEntries(
+      runtimes.sources.slice(0, 50).flatMap(({ id, ticks }) => {
+        const value = validTicks(ticks);
+        return id.length <= 256 && value ? [[id, value]] : [];
+      })
+    );
+    await getDb()
+      .exec(sql`INSERT INTO jellyfin_playback_state (uuid, item_id, runtimes)
+      VALUES (${uuid}, ${itemId}, ${JSON.stringify({ fallback: validTicks(runtimes.fallback), sources })})
+      ON CONFLICT(uuid, item_id) DO UPDATE SET runtimes = excluded.runtimes`);
+  }
+
+  static async recordPlayback(
+    uuid: string,
+    itemId: string,
+    payload: JellyfinItemDescriptor,
+    input: {
+      event: 'start' | 'progress' | 'stop';
+      sessionId?: string;
+      positionTicks?: number;
+      runtimeTicks?: number;
+      mediaSourceId?: string;
+    }
+  ): Promise<void> {
+    if (
+      input.sessionId !== undefined &&
+      (!input.sessionId || input.sessionId.length > 256)
+    )
+      return;
+    await getDb().tx(async (tx) => {
+      const state = await lockPlayback(tx, uuid, itemId);
+      const hash = input.sessionId ? sessionHash(input.sessionId) : null;
+      const same = hash === state.session_id;
+      let history = state.history;
+      let generation = Number(state.generation);
+      if (hash) {
+        const remembered = sessionHistory(history, hash);
+        if (same) {
+          if (
+            state.completed ||
+            state.last_event === 'stop' ||
+            input.event === 'start'
+          )
+            return;
+        } else {
+          if (remembered.seen || (state.session_id && input.event !== 'start'))
+            return;
+          history = remembered.history;
+          generation++;
+        }
+      } else if (state.session_id && input.event !== 'start') {
+        return;
+      }
+      const existing =
+        await tx.maybeOne<PlaystateDbRow>(sql`SELECT * FROM jellyfin_playstate
+        WHERE uuid = ${uuid} AND item_id = ${itemId}`);
+      const row = existing ? toPlaystate(existing) : null;
+      const position = validTicks(input.positionTicks);
+      if (
+        !hash &&
+        input.event !== 'start' &&
+        position == null &&
+        (state.completed || row?.played)
+      )
+        return;
+      if (!hash && input.event === 'start' && position == null && !row?.played)
+        return;
+      const runtimes = JSON.parse(state.runtimes) as {
+        fallback?: number;
+        sources?: Record<string, number>;
+      };
+      const sourceRuntime =
+        input.mediaSourceId &&
+        runtimes.sources &&
+        Object.hasOwn(runtimes.sources, input.mediaSourceId)
+          ? runtimes.sources[input.mediaSourceId]
+          : undefined;
+      const runtimeTicks =
+        validTicks(input.runtimeTicks) ||
+        validTicks(sourceRuntime) ||
+        validTicks(runtimes.fallback) ||
+        row?.runtimeTicks ||
+        0;
+      const pos =
+        position ??
+        (hash && !same && row?.played ? 0 : row?.positionTicks) ??
+        0;
+      const startReset =
+        input.event === 'start' && (position != null || !hash || !row?.played);
+      const completed =
+        input.event !== 'start' &&
+        runtimeTicks > 0 &&
+        pos >= runtimeTicks * 0.9;
+      const now = Date.now();
+      await this.writePlaystate(tx, uuid, itemId, payload, {
+        positionTicks: completed ? 0 : startReset ? (position ?? 0) : pos,
+        runtimeTicks,
+        played: completed,
+        incrementPlayCount: completed
+          ? hash && !same
+            ? true
+            : 'if-unplayed'
+          : false,
+        lastPlayedAt: now,
+      });
+      await tx.exec(sql`UPDATE jellyfin_playback_state
+        SET session_id = ${hash}, history = ${history}, generation = ${generation},
+            completed = ${completed ? 1 : 0}, last_event = ${input.event}, updated_at = ${now}
+        WHERE uuid = ${uuid} AND item_id = ${itemId}`);
+    });
+  }
+
   static async userVersions(uuids: string[]): Promise<Map<string, string>> {
     const out = new Map<string, string>();
     const wanted = [...new Set(uuids.filter(Boolean))];
@@ -144,6 +300,19 @@ export class JellyfinRepository {
       lastPlayedAt?: number | null;
     }
   ): Promise<JellyfinPlaystateRow> {
+    return getDb().tx(async (tx) => {
+      await lockPlayback(tx, uuid, itemId);
+      return this.writePlaystate(tx, uuid, itemId, payload, patch);
+    });
+  }
+
+  private static async writePlaystate(
+    tx: DbDriver,
+    uuid: string,
+    itemId: string,
+    payload: JellyfinItemDescriptor,
+    patch: Parameters<typeof JellyfinRepository.upsertPlaystate>[3]
+  ): Promise<JellyfinPlaystateRow> {
     const now = Date.now();
     const pos = patch.positionTicks ?? null;
     const rt = patch.runtimeTicks ?? null;
@@ -158,7 +327,7 @@ export class JellyfinRepository {
     const setLastPlayed = patch.lastPlayedAt === undefined ? 0 : 1;
     const lastPlayed = patch.lastPlayedAt ?? null;
     const seriesKey = seriesKeyFor(payload);
-    await getDb().exec(
+    await tx.exec(
       sql`INSERT INTO jellyfin_playstate
             (uuid, item_id, payload, series_key, position_ticks, runtime_ticks, played, play_count, favorite, last_played_at, updated_at)
           VALUES (${uuid}, ${itemId}, ${JSON.stringify(payload)}, ${seriesKey},
@@ -181,8 +350,10 @@ export class JellyfinRepository {
             last_played_at = CASE WHEN ${setLastPlayed} = 1 THEN ${lastPlayed} ELSE jellyfin_playstate.last_played_at END,
             updated_at = excluded.updated_at`
     );
-    const row = await this.getPlaystate(uuid, itemId);
-    if (row) return row;
+    const row =
+      await tx.maybeOne<PlaystateDbRow>(sql`SELECT * FROM jellyfin_playstate
+      WHERE uuid = ${uuid} AND item_id = ${itemId}`);
+    if (row) return toPlaystate(row);
     return {
       itemId,
       payload,

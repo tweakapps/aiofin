@@ -27,6 +27,7 @@ import { usenetLibraryArr } from './0026_usenet_library_arr.js';
 import { jellyfin } from './0027_jellyfin.js';
 import { jellyfinKeys } from './0028_jellyfin_keys.js';
 import { usenetUndecodable } from './0029_usenet_undecodable.js';
+import { jellyfinPlaybackState } from './0030_jellyfin_playback_state.js';
 import type { Migration } from './types.js';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -59,6 +60,7 @@ export const MIGRATIONS: readonly Migration[] = [
   jellyfin,
   jellyfinKeys,
   usenetUndecodable,
+  jellyfinPlaybackState,
 ];
 
 export type { Migration } from './types.js';
